@@ -37,10 +37,9 @@ struct SF_TRACK_SUPPR
 #define _STRINGY(_s) #_s
 #define STRINGY(_s) _STRINGY(_s)
 #define SF_MARK_STACK       SF_STACK_ENTRY _JOIN_2(SF_STACK_MARKER, __LINE__){__FILE__ ":" STRINGY(__LINE__) }
-#define SF_MESG_STACK(_msg) SF_STACK_ENTRY _JOIN_2(SF_STACK_MARKER, __LINE__){_msg}
+#define SF_MESG_STACK(_msg) SF_STACK_ENTRY _JOIN_2(SF_STACK_MARKER, __LINE__){_msg ":" STRINGY(__LINE__) }
 #define SF_NO_TRACK         SF_TRACK_SUPPR _JOIN_2(SF_STACK_MARKER, __LINE__){}
 #define SF_SCOPE(_msg)      sonic_field::scope _JOIN_2(SF_SCOPE, __LINE__){}; SF_MESG_STACK(_msg);
-// TODO: Print out stack trace before throwing.
 #define SF_THROW(...)      do{SF_MARK_STACK; auto e = __VA_ARGS__; DUMP_STACK(typeid(e).name(), e.what()); throw e;}while(0)
 
 // This are used in memory assignement etc. so we define them here which is 'above' the rest of sonic field.
@@ -49,7 +48,13 @@ namespace sonic_field
     constexpr uint64_t SAMPLES_PER_SECOND = 128000;
     constexpr uint64_t BLOCK_SIZE = SAMPLES_PER_SECOND / 1000;
     constexpr uint64_t WIRE_BLOCK_SIZE = BLOCK_SIZE >> 1;
-    constexpr uint64_t SF_BLOCK_POOL_MAX = 64;
+    // Set the working memory to 256 meg.
+    constexpr uint64_t SF_BLOCK_POOL_MAX = (2048l * 1024l * 1024l) / (sizeof(double) * BLOCK_SIZE);
+    inline double* empty_block()
+    {
+        return (double*)-1;
+    }
     double* new_block(bool init = true);
     void free_block(double* block);
+    void clear_block_pool();
 }

@@ -3,11 +3,17 @@
 #include "test/tests.h"
 #include "music/kites_over_water.h"
 #include "music/filter_demo.h"
-#include "music/echo_location.h"
+#include "music/fractured_mind.h"
+#include "music/cactus.h"
+#include "music/reconstructor.h"
+
+// The current thing to run.
+//auto target = []{ sonic_field::combe_demo(); };
+auto target = []{ sonic_field::filter_demo(); };
 
 int main(int argc, char** argv)
 {
-
+    bool track_memory = false;
 	std::unordered_map<std::string, std::string> options{};
 	// Argument and if it requires a value. Defaults not implement atm.
 	std::unordered_map<std::string, bool> possible_options{
@@ -92,6 +98,13 @@ int main(int argc, char** argv)
 		sonic_field::set_work_space(options["--work-space"]);
 		sonic_field::set_output_space(options["--output-space"]);
 
+        // Do verbose (in memory tracking)
+        if (in("--verbose"))
+        {
+            track_memory = true;
+            SF_TRACK_MEMORY_ON();
+        }
+
 		// Now see what is asked for.
 		if (in("--generate-named"))
 		{
@@ -111,9 +124,9 @@ int main(int argc, char** argv)
 		}
 		else if (in("--generate"))
 		{
-			//sonic_field::time_it("Render", [] {
-			//	sonic_field::echo_location();
-			//	});
+			sonic_field::time_it("Render", [] {
+                    target();
+				});
 		}
 		else
 		{
@@ -126,5 +139,13 @@ int main(int argc, char** argv)
 		std::cerr << "Exception during render: " << e.what() << std::endl;
 		throw;
 	}
+    if (track_memory)
+    {
+        std::cout << "Memory tracking data:\n" 
+                  << "=====================\n";
+        sonic_field::clear_block_pool();
+        SF_PRINT_TRACKED_MEMORY();
+        SF_TRACK_MEMORY_OFF();
+    }
 	return 0;
 }

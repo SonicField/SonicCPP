@@ -28,12 +28,15 @@
 #include <time.h>
 #include <limits>
 #include <tuple>
+
 #include "memory_manager.h"
 
 namespace sonic_field
 {
     constexpr double PI = 3.1415926535897932384626433832795;
     constexpr double MAX_FREQUENCY = double(SAMPLES_PER_SECOND >> 2);
+    constexpr double ANGLE_RATE = 2.0 * PI / SAMPLES_PER_SECOND;
+
 
     void set_work_space(const std::string&);
     void set_output_space(const std::string&);
@@ -41,10 +44,8 @@ namespace sonic_field
     const std::string& output_space();
     std::string join_path(const std::vector<std::string>&);
 
-    inline double* empty_block()
-    {
-        return (double*)-1;
-    }
+    std::string temp_file_name();
+    void delete_sig_file(const std::string& name);
 
     template<class C>
     class signal_impl
@@ -257,7 +258,25 @@ namespace sonic_field
     }
 
     void signal_to_wav(const std::string&);
-    void wav_to_sig(const std::string&);
+
+    class wav_file_reader;
+    class wav_reader : public signal_generator_base
+    {
+        wav_file_reader* m_reader;
+
+    public:
+        wav_reader() = delete;
+        explicit wav_reader(const std::string& name);
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual ~wav_reader() override;
+    };
+
+    inline signal read_wav(const std::string& file_name)
+    {
+        SF_MESG_STACK("read_wav - create wav_reader");
+        return add_to_scope({ new wav_reader{file_name} });
+    }
 
     template<typename T>
     inline T fast_cos(T x) noexcept
@@ -274,7 +293,7 @@ namespace sonic_field
     // =========================
 
     #pragma pack(push, 1)
-    struct singal_file_header
+    struct signal_file_header
     {
         float dc_offset;
         float peak_negative;
@@ -297,7 +316,7 @@ namespace sonic_field
         const std::string m_name;
         std::ofstream m_out;
         decimator m_decimate;
-        singal_file_header m_header;
+        signal_file_header m_header;
         bool m_runner;
 
     public:
@@ -395,15 +414,22 @@ namespace sonic_field
     public:
         gain_controller() = delete;
         explicit gain_controller(double attack, double release);
+        explicit gain_controller(double scale, double attack, double release);
         virtual double* next() override;
         virtual const char* name() override;
         virtual signal_base* copy() override;
     };
 
     inline signal control_gain(double attack, double release)
-    { 
+    {
         SF_MARK_STACK;
         return add_to_scope({ new gain_controller{attack, release} });
+    }
+
+    inline signal damp_gain(double scale, double attack, double release)
+    {
+        SF_MARK_STACK;
+        return add_to_scope({ new gain_controller{scale, attack, release} });
     }
 
     enum class filter_type
@@ -440,12 +466,46 @@ namespace sonic_field
         virtual double* next() override;
         virtual const char* name() override;
         virtual signal_base* copy() override;
+
+        struct memory
+        {
+            double m_ou1;
+            double m_ou2;
+            double m_in1;
+            double m_in2;
+            memory(): m_ou1{0}, m_ou2{0}, m_in1{0}, m_in2{0}
+            {}
+            memory(double o1, double o2, double i1, double i2):
+                m_ou1{o1}, m_ou2{o2}, m_in1{i1}, m_in2{i2}
+            {}
+        };
+
+        memory store_memory() const;
+        void restore_memory(const memory&);
+
     };
 
     inline signal filter_rbj(filter_type type, double frequency, double q, double db_gain)
     {
         SF_MARK_STACK;
         return add_to_scope({ new rbj_filter(type, frequency, q, db_gain) });
+    }
+
+    class shaped_rbj : public signal_base
+    {
+        rbj_filter::memory m_memory;
+        filter_type m_type;
+    public:
+        shaped_rbj(filter_type);
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual signal_base* copy() override;
+    };
+
+    inline signal filter_shaped_rbj(filter_type type)
+    {
+        SF_MARK_STACK;
+        return add_to_scope({ new shaped_rbj(type) });
     }
 
     enum class clean_level
@@ -619,6 +679,12 @@ namespace sonic_field
         return add_to_scope({ new wrapper{front, back} });
     }
 
+    inline signal copy(signal& input)
+    {
+        SF_MESG_STACK("copy - create copy");
+        return add_to_scope(input.copy());
+    }
+
     class fft
     {
         const uint64_t m_n, m_m;
@@ -756,6 +822,30 @@ namespace sonic_field
         return add_to_scope({ new echo_chamber{delay, feedback, mix, saturate, wow, flutter } });
     }
 
+    class warmer : public signal_mono_base
+    {
+        double m_cube_amount;
+        double m_max_difference;
+    public:
+        warmer() = delete;
+        explicit warmer(
+                double cube_amount,
+                double max_difference
+                );
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual signal_base* copy() override;
+    };
+
+    inline signal warm(
+            double cube_amount,
+            double max_difference
+            )
+    {
+        SF_MESG_STACK("warm - create warmer");
+        return add_to_scope({ new warmer{cube_amount, max_difference} });
+    }
+
     class random_doubles
     {
         uint32_t m_state;
@@ -806,6 +896,68 @@ namespace sonic_field
     {
         SF_MESG_STACK("sweeper - create sweeper");
         return add_to_scope({ new sweeper{start_frequency, end_frequency, length} });
+    }
+
+    class shepard : public signal_generator_base
+    {
+        double m_start_frequency;
+        double m_end_frequency;
+        uint64_t m_length;
+        uint64_t m_cycle_length;
+        double m_step;
+        std::vector<double> m_pitches;
+
+    public:
+        shepard() = delete;
+        shepard(double start_frequency, double end_frequency, uint64_t cycle_length, uint64_t length);
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual signal_base* copy() override;
+    };
+
+    inline signal generate_shepard(double start_frequency, double end_frequency, uint64_t cycle_length, uint64_t length)
+    {
+        SF_MESG_STACK("shepard - create shepard");
+        return add_to_scope({ new shepard{start_frequency, end_frequency, cycle_length, length} });
+    }
+
+    class storer : public signal_mono_base
+    {
+        std::vector<double*> m_store;
+        uint64_t m_position;
+
+    public:
+        storer(): m_store{}, m_position{0}{}
+        virtual void inject(signal&) override;
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual signal_base* copy() override;
+    };
+
+    inline signal store()
+    {
+        SF_MESG_STACK("storer - create store");
+        return add_to_scope({ new storer{} });
+    }
+
+    class leveler : public signal_mono_base
+    {
+        std::vector<double*> m_store;
+        uint64_t m_position;
+        double m_scale;
+
+    public:
+        leveler(): m_store{}, m_position{0}, m_scale{0}{}
+        virtual void inject(signal&) override;
+        virtual double* next() override;
+        virtual const char* name() override;
+        virtual signal_base* copy() override;
+    };
+
+    inline signal level_store()
+    {
+        SF_MESG_STACK("level_store - create leveler");
+        return add_to_scope({ new leveler{} });
     }
 
     class situator : public signal_mono_base

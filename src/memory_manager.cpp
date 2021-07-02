@@ -60,11 +60,14 @@ inline void* _do_new(std::size_t sz)
     {
         SF_NO_TRACK;
         std::string stack{};
-        for (auto& entry : SF_V_STACK)
+        auto idx = SF_V_STACK.size();
+        while(idx > 0)
         {
+            --idx;
             if (stack.size())
                 stack += "\n";
-            stack += entry;
+            stack += "...";
+            stack += SF_V_STACK[idx];
         }
         SF_MEMORY_TRACKER.insert({ ret, {sz, stack } });
     }
@@ -125,16 +128,30 @@ namespace sonic_field
         {
             block = new double[BLOCK_SIZE];
         }
-        if (init) memset(block, 0, sizeof(double) * BLOCK_SIZE);
+        if (init)
+            memset(block, 0, sizeof(double) * BLOCK_SIZE);
         return block;
     }
 
     void free_block(double* block)
     {
+        if (!block)
+        {
+            SF_THROW(std::logic_error{"Trying to free a nullptr block"});
+        }
+        if (block == empty_block())
+        {
+            SF_THROW(std::logic_error{"Trying to free a empty block"});
+        }
         SF_BLOCK_POOL.emplace_back(std::unique_ptr<double>{block});
         if (SF_BLOCK_POOL.size() > SF_BLOCK_POOL_MAX)
         {
-            SF_THROW(std::logic_error{"Blocks appear to be being leaked"});
+            SF_THROW(std::logic_error{"Working memory exhausted@ " + std::to_string(SF_BLOCK_POOL_MAX) + " blocks"});
         }
+    }
+
+    void clear_block_pool()
+    {
+        SF_BLOCK_POOL.clear();
     }
 }

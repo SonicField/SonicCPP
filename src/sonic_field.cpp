@@ -1,5 +1,6 @@
 #include "sonic_field.h"
 #include <math.h>
+#include <atomic>
 
 namespace sonic_field
 {
@@ -55,6 +56,19 @@ namespace sonic_field
         return OUTPUT_SPACE;
     }
 
+    std::string temp_file_name()
+    {
+        static std::atomic<uint64_t> counter{0};
+        return "_temp_" + std::to_string(++counter);
+    }
+
+    void delete_sig_file(const std::string& name)
+    {
+        auto fname = work_space() + name + ".sig";
+        if (std::remove(fname.c_str()))
+           SF_THROW(std::runtime_error{"Failed to remove file: " + fname});
+    }
+
     // TODO: I we end up only using one delete the other.
     #ifdef _WIN32
         constexpr auto PATH_SEP_C = '\\';
@@ -93,11 +107,12 @@ namespace sonic_field
         m_clean_level{ clean },
         m_position{ 0 }
     {
-        singal_file_header header{};
+        signal_file_header header{};
         m_in.open(m_name, std::ifstream::ate | std::ifstream::binary);
-         if (!m_in) SF_THROW(std::out_of_range{ "could not open file " + m_name});
+        if (!m_in)
+            SF_THROW(std::out_of_range{ "could not open file " + m_name});
 
-        m_len = (size_t(m_in.tellg()) - sizeof(header)) / sizeof(float);
+        m_len = (uint64_t(m_in.tellg()) - sizeof(header)) / sizeof(float);
         m_in.seekg(0);
         m_in.read(reinterpret_cast<char*>(&header), sizeof(header));
         if (!m_in) SF_THROW(std::out_of_range{ "signal file corrupt" });
@@ -128,16 +143,24 @@ namespace sonic_field
         default:
             SF_THROW(std::invalid_argument{ "Unknown clean level: " + std::to_string(uint64_t(clean)) });
         }
+        std::cerr << "Reading Signal:  name: " << m_name << " dc: " << header.dc_offset << " peak neg: "
+                    << header.peak_negative << " peak pos: " << header.peak_positive
+                    << " len: " << m_len << std::endl;
     }
 
     double* signal_reader::next()
     {
-        SF_MARK_STACK;
-        if (!m_len) return nullptr;
+        SF_MESG_STACK("signal_reader::next");
+        if (!m_len)
+        {
+            m_in.close();
+            return nullptr;
+        }
         double* ret = new_block(false);
         float buf[WIRE_BLOCK_SIZE];
         m_in.read(reinterpret_cast<char*>(&buf), sizeof(buf));
-        if (!m_in) SF_THROW(std::out_of_range{ "signal file corrupt" });
+        if (!m_in)
+            SF_THROW(std::out_of_range{ "signal file corrupt" });
         auto jdx = 0;
         switch (m_clean_level)
         {
@@ -199,6 +222,110 @@ namespace sonic_field
         return "reader";
     }
 
+    const char* storer::name()
+    {
+        return "storer";
+    }
+
+    void storer::inject(signal& in)
+    {
+        SF_MARK_STACK;
+        signal_mono_base::inject(in);
+        while (auto block = in.next())
+        {
+            m_store.emplace_back(block);
+        }
+    }
+
+    double* storer::next()
+    {
+        if (m_position < m_store.size())
+        {
+            auto ret = m_store.at(m_position);
+            ++m_position;
+            return ret;
+        }
+        else
+            return nullptr;
+    }
+
+    signal_base* storer::copy()
+    {
+        SF_MARK_STACK;
+        if (m_position != 0)
+            SF_THROW(std::logic_error{"Trying to copy a used store"});
+        storer* ret = new storer();
+        for(auto b: m_store)
+        {
+            if (b == empty_block())
+            {
+                ret->m_store.push_back(b);
+            }
+            else
+            {
+                auto nb = new_block();
+                memcpy(nb, b, BLOCK_SIZE*sizeof(double));
+                ret->m_store.emplace_back(nb);
+            }
+        }
+        return ret;
+    }
+
+    const char* leveler::name()
+    {
+        return "leveler";
+    }
+
+    void leveler::inject(signal& in)
+    {
+        SF_MARK_STACK;
+        signal_mono_base::inject(in);
+        while (auto block = in.next())
+        {
+            m_store.emplace_back(block);
+            for(uint64_t i{0}; i < BLOCK_SIZE; ++i)
+                m_scale = std::fmax(std::abs(block[i]), m_scale);
+        }
+        m_scale = 1.0 / m_scale;
+    }
+
+    double* leveler::next()
+    {
+        if (m_position < m_store.size())
+        {
+            auto ret = m_store.at(m_position);
+            for(uint64_t i{0}; i < BLOCK_SIZE; ++i)
+                ret[i] *= m_scale;
+            ++m_position;
+            return ret;
+        }
+        else
+            return nullptr;
+    }
+
+    signal_base* leveler::copy()
+    {
+        SF_MARK_STACK;
+        if (m_position != 0)
+            SF_THROW(std::logic_error{"Trying to copy a used leveler"});
+        leveler* ret = new leveler();
+        for(auto b: m_store)
+        {
+            if (b == empty_block())
+            {
+                ret->m_store.push_back(b);
+            }
+            else
+            {
+                auto nb = new_block();
+                memcpy(nb, b, BLOCK_SIZE*sizeof(double));
+                ret->m_store.emplace_back(nb);
+            }
+        }
+        ret->m_scale = m_scale;
+        return ret;
+    }
+
     signal_writer::signal_writer(const std::string& name, bool is_runner) :
         m_name{ work_space() + name + ".sig" },
         m_header{ 0,0,0 },
@@ -212,11 +339,18 @@ namespace sonic_field
         {
             SF_NO_TRACK; // Leaks bytes the first time it is called.
             m_out = std::ofstream{ m_name,std::ios_base::binary };
+            if (!m_out)
+                SF_THROW(std::logic_error{
+                        std::string{ "In " } +name() + ": output stream is invalid: " +
+                        strerror(errno)});
         }
         m_out.write(reinterpret_cast<char*>(&m_header), sizeof(m_header));
         if (m_runner)
         {
-            while(next()){};
+            while(auto block = next())
+            {
+                free_block(block);
+            };
         }
     }
 
@@ -224,6 +358,10 @@ namespace sonic_field
     {
         SF_MESG_STACK("signal_writer::next");
         return process_no_skip([&](double* block) {
+            if (!m_out)
+                SF_THROW(std::logic_error{
+                        std::string{ "In " } +name() + ": output stream is invalid: " +
+                        strerror(errno)});
             if (m_out.tellp() == sizeof(m_header))
             {
                 // Prefeed the decimator with the first value.
@@ -232,7 +370,6 @@ namespace sonic_field
             }
             if (block)
             {
-                if (!m_out) SF_THROW(std::logic_error(std::string{ "In " } +name() + ": output stream is invalid."));
                 float buff[WIRE_BLOCK_SIZE];
                 for(uint64_t idx{ 0 }; idx < BLOCK_SIZE; ++idx)
                 {
@@ -337,7 +474,7 @@ namespace sonic_field
     {
         timespec ts;
         timespec_get(&ts, TIME_UTC);
-        m_state = ts.tv_nsec ^ uint32_t(ts.tv_sec);
+        m_state = rand() ^ ts.tv_nsec ^ uint32_t(ts.tv_sec);
     }
 
     double random_doubles::operator()()
@@ -432,14 +569,20 @@ namespace sonic_field
         m_release{ 1.0 + release / BLOCK_SIZE },
         m_arg_attack{ attack },
         m_arg_release{ release }
-    {
-        std::cerr << "Gain Controller attack: " << m_attack << " release: " << m_release << std::endl;
-    }
+    {}
+
+    gain_controller::gain_controller(double scale, double attack, double release) :
+        m_scale{ scale },
+        m_attack{ 1.0 + attack / BLOCK_SIZE },
+        m_release{ 1.0 + release / BLOCK_SIZE },
+        m_arg_attack{ attack },
+        m_arg_release{ release }
+    {}
 
     signal_base* gain_controller::copy()
     {
         SF_MARK_STACK;
-        return new gain_controller{ m_arg_attack, m_arg_release };
+        return new gain_controller{ m_scale, m_arg_attack, m_arg_release };
     }
 
     double* gain_controller::next()
@@ -451,7 +594,7 @@ namespace sonic_field
                 for (uint64_t idx{ 0 }; idx < BLOCK_SIZE; ++idx)
                 {
                     auto v = block[idx] / m_scale;
-                    auto m = abs(v);
+                    auto m = std::abs(v);
                     if (m > 0.5)
                     {
                         m_scale *= m_attack;
@@ -532,8 +675,10 @@ namespace sonic_field
 
     double* mixer::mix_with()
     {
+        SF_MARK_STACK;
         auto cnt = input_count();
-        if (cnt == 0) SF_THROW(std::logic_error{ "Cannot use a mixer with no inputs" });
+        if (cnt == 0)
+            SF_THROW(std::logic_error{ "Cannot use a mixer with no inputs" });
         auto into = input().next();
         if (!into)
         {
@@ -543,10 +688,11 @@ namespace sonic_field
             }
             return nullptr;
         }
-        if (into == empty_block()) into = new_block();
+        if (into == empty_block())into = new_block();
         for (decltype(cnt)idx{ 1 }; idx < cnt; ++idx)
         {
             auto from = input(idx).next();
+            if (from == empty_block()) continue;
             if (!from)
             {
                 switch (m_mode)
@@ -558,7 +704,6 @@ namespace sonic_field
                     SF_THROW(std::logic_error{ "Not all mixing inputs same length" });
                 }
             }
-            if (from == empty_block()) continue;
             switch (m_mode)
             {
             case mixer_type::ADD:
@@ -580,6 +725,7 @@ namespace sonic_field
 
     double* mixer::mix_append()
     {
+        SF_MARK_STACK;
         auto into = input().next();
         if (!into)
         {
@@ -592,7 +738,7 @@ namespace sonic_field
 
     double* mixer::next()
     {
-        SF_MARK_STACK;
+        SF_MESG_STACK("mixer::next");
         switch (m_mode)
         {
         case mixer_type::ADD:
@@ -767,7 +913,6 @@ namespace sonic_field
         return new wrapper{add_to_scope(m_front.copy()), add_to_scope(m_back.copy())};
     }
 
-
     cutter::cutter(uint64_t pad_before, uint64_t from, uint64_t to, uint64_t pad_after):
         m_pad_before{pad_before},
         m_from{ from },
@@ -779,7 +924,7 @@ namespace sonic_field
 
     double* cutter::next()
     {
-        SF_MARK_STACK;
+        SF_MESG_STACK("cutter::next");
         if (m_pad_before)
         {
             --m_pad_before;
@@ -787,10 +932,8 @@ namespace sonic_field
         }
         while (m_position < m_from)
         {
-            while (auto block = input().next())
-            {
-                if (block != empty_block()) free_block(block);
-            }
+            auto block = input().next();
+            if (block != empty_block()) free_block(block);
             ++m_position;
         }
         if (!m_done && m_position >= m_to)
@@ -841,13 +984,12 @@ namespace sonic_field
         uint64_t length = m_length * BLOCK_SIZE;
         if (m_position > length) return nullptr;
         double* data = new_block();
-        constexpr double angle_rate = 2.0 * PI / SAMPLES_PER_SECOND;
         double corrected_end = m_start_frequency + (m_end_frequency - m_start_frequency) / 2.0;
         for (uint64_t idx{ 0 }; idx < BLOCK_SIZE; ++idx)
         {
             double ratio = double(length - m_position) / double(length);
             double f = m_start_frequency * ratio + corrected_end * (1.0-ratio);
-            data[idx] = sin(f * m_position * angle_rate);
+            data[idx] = sin(f * m_position * ANGLE_RATE);
             ++m_position;
         }
         return data;
@@ -863,4 +1005,73 @@ namespace sonic_field
         return new sweeper{ m_start_frequency, m_end_frequency, m_length };
     };
 
+    shepard::shepard(double start_frequency, double end_frequency, uint64_t cycle_length, uint64_t length):
+        m_start_frequency{ start_frequency },
+        m_end_frequency{ end_frequency },
+        m_length{ length },
+        m_cycle_length{ cycle_length }
+    {
+        for(double p{start_frequency}; p < start_frequency * 64; p=p*2)
+        {
+            m_pitches.push_back(p);
+        }
+        double nsamples = m_cycle_length * SAMPLES_PER_SECOND * 1000;
+        m_step = pow(2, 1.0/nsamples);
+        if (m_start_frequency > m_end_frequency)
+            m_step = 1.0 / m_step;
+    }
+
+    double* shepard::next()
+    {
+        if (m_length == 0)
+            return nullptr;
+        auto data = new_block();
+        auto start = m_length * BLOCK_SIZE;
+        for(uint64_t i{0}; i<BLOCK_SIZE; ++i)
+        {
+            double datum{0};
+            double harmonic_multiplier{1};
+            for(uint64_t j{0}; j<m_pitches.size(); ++j)
+            {
+                auto p = m_pitches[j];
+                auto val = p * (start - j) * ANGLE_RATE;
+                auto p_start = m_start_frequency * harmonic_multiplier;
+                auto p_end = m_end_frequency * harmonic_multiplier;
+                auto p_diff = std::abs(p_start * p_end);
+                auto p_pos = std::fmin(std::abs((p_start - p)), std::abs(p_end - p));
+                auto p_ratio = (p_pos / p_diff) * 2;
+                // Follow a porabola from 0 to 1 and back.
+                auto p_vol = p_ratio * p_ratio;
+                val *= p_vol;
+                datum += val;
+                if (p_start > p_end)
+                {
+                    if (p <= p_end)
+                        p = p_start;
+                    else
+                        p *= m_step;
+                }
+                else
+                {
+                    if (p >= p_end)
+                        p = p_start;
+                    else
+                        p *= m_step;
+                }
+                m_pitches[j] = p;
+            }
+        }
+        --m_length;
+        return data;
+    }
+
+    const char* shepard::name()
+    {
+        return "shepard";
+    }
+
+    signal_base* shepard::copy()
+    {
+        return new shepard{ m_start_frequency, m_end_frequency, m_cycle_length, m_length };
+    };
 } // sonic_field

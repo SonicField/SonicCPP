@@ -178,23 +178,32 @@ public:
         m_ostream.flush();
         m_buffer_pointer = 0;
     }
+
+    void close()
+    {
+        m_ostream.close();
+    }
 };
 
-class wav_reader : public wav_file
+class wav_file_reader : public wav_file
 {
     std::ifstream m_istream;
+    std::streampos m_len;
+    std::streampos m_read;
 
     void check_istream()
     {
-        if (!m_istream) SF_THROW(std::out_of_range("End of file or could not open: " + m_file));
+        if (!m_istream)
+            SF_THROW(std::out_of_range("End of file or could not open: " + m_file));
     }
 
 public:
-    explicit wav_reader(const std::string& file):
-        m_istream{file}
+    explicit wav_file_reader(const std::string& file_name)
     {
-        m_file = file;
-        m_istream = std::ifstream{file};
+        std::cerr << "Opening wav file: " << file_name << std::endl;
+        m_istream.open(file_name, std::ifstream::ate | std::ifstream::binary);
+        m_len = m_istream.tellg();
+        m_istream.seekg(0);
 
         // Read the first 12 bytes of the file
         m_istream.read(m_buffer, 12);
@@ -210,10 +219,10 @@ public:
         if (riffTypeID != RIFF_TYPE_ID) SF_THROW(std::logic_error("Invalid Wav Header data, incorrect riff type ID"));
 
         // Check that the file size matches the number of bytes listed in header
-        if (file.length() != chunkSize + 8)
+        if (m_len != chunkSize + 8)
         {
             SF_THROW(std::logic_error{"Header chunk size (" + std::to_string(chunkSize)
-                + ") does not match file size (" + std::to_string(file.length()) + ")"});
+                + ") does not match file size (" + std::to_string(m_len) + ")"});
         }
 
         auto foundFormat{false};
@@ -247,46 +256,61 @@ public:
 
                 // Check this is uncompressed data
                 auto compressionCode = getLE(m_buffer, 0, 2);
-                if (compressionCode != 1) SF_THROW(std::logic_error("Compression Code " + std::to_string(compressionCode) + " not supported"));
+                if (compressionCode != 1)
+                    SF_THROW(std::logic_error("Compression Code " + std::to_string(compressionCode) + " not supported"));
 
                 // Extract the format information
                 auto num_chans = (uint64_t)getLE(m_buffer, 2, 2);
                 m_sample_rate = getLE(m_buffer, 4, 4);
+                std::cerr << "Sample Rate: " << m_sample_rate << std::endl;
                 m_block_align = (uint64_t)getLE(m_buffer, 12, 2);
                 m_valid_bits = (uint64_t)getLE(m_buffer, 14, 2);
 
                 if (num_chans == 0) SF_THROW(std::logic_error(
                                 "Number of channels specified in header is equal to zero"));
-                if (num_chans != 1) SF_THROW(std::logic_error("Only single channel wav supported"));
-                if (m_block_align == 0) SF_THROW(std::logic_error("Block Align specified in header is equal to zero"));
-                if (m_valid_bits < 2) SF_THROW(std::logic_error("Valid Bits specified in header is less than 2"));
-                if (m_valid_bits > 64) SF_THROW(std::logic_error(
+                if (num_chans != 1)
+                    SF_THROW(std::logic_error("Only single channel wav supported"));
+                if (m_block_align == 0)
+                    SF_THROW(std::logic_error("Block Align specified in header is equal to zero"));
+                if (m_valid_bits < 2)
+                    SF_THROW(std::logic_error("Valid Bits specified in header is less than 2"));
+                if (m_valid_bits > 64)
+                    SF_THROW(std::logic_error(
                                 "Valid Bits specified in header is greater than 64, this is greater than a long can hold"));
+                std::cerr << "Bit Depth: " << m_valid_bits << std::endl;
+
 
                 // Calculate the number of bytes required to hold 1 sample
                 m_bytes_per_sample = (m_valid_bits + 7) / 8;
+                std::cerr << "Bytes Per Sample: " << m_bytes_per_sample << std::endl;
                 if (m_bytes_per_sample != m_block_align) SF_THROW(std::logic_error(
                                 "Block Align does not agree with bytes required for validBits and number of channels"));
 
                 // Account for number of format bytes and then skip over
                 // any extra format bytes
                 numChunkBytes -= 16;
-                if (numChunkBytes > 0) m_istream.seekg(numChunkBytes, m_istream.cur);
+                if (numChunkBytes > 0)
+                    m_istream.seekg(numChunkBytes, m_istream.cur);
+                std::cerr << "Chunk Bites Left: " << numChunkBytes << std::endl;
             }
             else if (chunkID == DATA_CHUNK_ID)
             {
                 // Check if we've found the format chunk,
                 // If not, SF_THROW(an exception as we need the format information
                 // before we can read the data chunk
-                if (foundFormat == false) SF_THROW(std::logic_error("Data chunk found before Format chunk"));
+                if (foundFormat == false)
+                    SF_THROW(std::logic_error("Data chunk found before Format chunk"));
 
                 // Check that the chunkSize (wav data length) is a multiple of
                 // the
                 // block align (bytes per frame)
-                if (chunkSize % m_block_align != 0) SF_THROW(std::logic_error("Data Chunk size is not multiple of Block Align"));
+                if (chunkSize % m_block_align != 0)
+                    SF_THROW(std::logic_error("Data Chunk size is not multiple of Block Align"));
 
                 // Calculate the number of frames
                 m_num_frames = chunkSize / m_block_align;
+                std::cerr << "Number Of Frames: " << m_num_frames << std::endl;
+                m_len = m_istream.tellg() + std::streampos{chunkSize};
 
                 // Flag that we've found the wave data chunk
                 foundData = true;
@@ -297,19 +321,22 @@ public:
             {
                 // If an unknown chunk ID is found, just skip over the chunk
                 // data
+                std::cerr << "Skipping Chunk: " << numChunkBytes << std::endl;
                 m_istream.seekg(numChunkBytes, m_istream.cur);
             }
         }
 
         // SF_THROW(an exception if no data chunk has been found
-        if (foundData == false) SF_THROW(std::logic_error{ "Did not find a data chunk" });
+        if (foundData == false)
+            SF_THROW(std::logic_error{ "Did not find a data chunk" });
     
         m_buffer_pointer = 0;
         m_bytes_read = 0;
         m_frame_counter = 0;
+        m_read = m_istream.tellg();
     };
  
-    int32_t readSample()
+    double read_sample()
     {
         long val = 0;
 
@@ -317,30 +344,80 @@ public:
         {
             if (m_buffer_pointer == m_bytes_read)
             {
-                auto read = m_istream.readsome(m_buffer, BUFFER_SIZE);
+                auto start = m_read;
+                auto read = m_len - start;
+                if (read > BUFFER_SIZE)
+                    read = BUFFER_SIZE;
                 check_istream();
-                if (read > (1ll << 32)-1) SF_THROW(std::out_of_range{ "Wav file too long" });
+                m_istream.read(m_buffer, read);
+                m_read += read;
                 m_bytes_read = uint32_t(read);
                 m_buffer_pointer = 0;
+                if (m_bytes_read == 0)
+                    continue;
             }
 
             int32_t v = m_buffer[m_buffer_pointer];
-            if (b < m_bytes_per_sample - 1 || m_bytes_per_sample == 1) v &= 0xFF;
+            if (b < m_bytes_per_sample - 1 || m_bytes_per_sample == 1)
+                v &= 0xFF;
             val += v << (b * 8);
 
             m_buffer_pointer++;
         }
 
-        return val;
+        // Not sure if the correction of sign should be here or some place else.
+        return -double(val) / double(1 << ((m_bytes_per_sample * 8) - 1)) ;
+    }
+
+    void close()
+    {
+        if (m_istream.is_open())
+            m_istream.close();
+    }
+
+    bool has_more()
+    {
+        return m_read < m_len;
     }
 };
+
+wav_reader::wav_reader(const std::string& name) :
+    m_reader{ new wav_file_reader{output_space() + name + ".wav"} }
+    {}
+
+double* wav_reader::next()
+{
+    if (!m_reader->has_more())
+        return nullptr;
+    auto out = new_block();
+    for(uint64_t i{0}; i < BLOCK_SIZE; ++i)
+    {
+        if (m_reader->has_more())
+            out[i] = m_reader->read_sample();
+        else
+            out[i] = 0.0;
+    }
+    return out;
+}
+
+const char* wav_reader::name()
+{
+    return "wav_reader";
+}
+
+wav_reader::~wav_reader()
+{
+    delete m_reader;
+}
+
 void signal_to_wav(const std::string& filename_in)
 {
     SF_MARK_STACK;
-    singal_file_header header;
+    signal_file_header header;
     auto filename = work_space() + filename_in + ".sig";
     std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
-    if (!in) SF_THROW(std::invalid_argument{ "File not found: " + filename});
+    if (!in)
+        SF_THROW(std::invalid_argument{ "File not found: " + filename});
     auto len = (size_t(in.tellg()) - sizeof(header)) / sizeof(float);
     in.seekg(0);
     auto wavname = output_space() + filename_in + ".wav";
@@ -359,14 +436,14 @@ void signal_to_wav(const std::string& filename_in)
     {
         char buf[sizeof(float)];
         in.read(buf, sizeof(float));
-        if (!in) SF_THROW(std::out_of_range{ "signal file corrupt" });
+        if (!in)
+            SF_THROW(std::out_of_range{ "signal file corrupt" });
         float fsamp = *(reinterpret_cast<float*>(buf)) * scale;
         auto isamp = int32_t(fsamp * std::numeric_limits<int32_t>::max());
         wav.writeSample(isamp);
     }
     wav.flush();
+    wav.close();
 }
 
-void wav_to_sig(const std::string&)
-{}
 } // sonic_field

@@ -1,5 +1,5 @@
 CXX      := /usr/bin/g++
-CXXFLAGS := -O3 -Wall -Werror -std=c++17
+CXXFLAGS := -O3 -Wall -Werror -std=c++17 -g
 # For GCC
 #LDFLAGS  := -L/usr/lib -lstdc++ -lm
 # For Clang

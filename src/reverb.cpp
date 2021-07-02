@@ -946,36 +946,39 @@ namespace sonic_field
         auto cnt = input_count();
         if (cnt == 1) return;
         if (cnt > 2) SF_THROW(std::logic_error{ "Reverberators can only have two inputs" });
-        writer_plug* left_plug = new writer_plug{};
-        writer_plug* right_plug = new writer_plug{};
-        m_left.inject({ add_to_scope(left_plug) });
-        m_right.inject({ add_to_scope(right_plug) });
-        while (true)
         {
-            auto get_or_make = [](double* data)
+            SF_MARK_STACK;
+            writer_plug* left_plug = new writer_plug{};
+            writer_plug* right_plug = new writer_plug{};
+            m_left.inject({ add_to_scope(left_plug) });
+            m_right.inject({ add_to_scope(right_plug) });
+            while (true)
             {
-                if (data == empty_block())
+                auto get_or_make = [](double* data)
                 {
-                    data = new_block();
+                    if (data == empty_block())
+                    {
+                        data = new_block();
+                    }
+                    return data;
+                };
+                auto left = get_or_make(input(0).next());
+                auto right = get_or_make(input(1).next());
+                if (left == nullptr && right == nullptr)
+                {
+                    left_plug->set_data(nullptr);
+                    right_plug->set_data(nullptr);
+                    m_left.next();
+                    m_right.next();
+                    return;
                 }
-                return data;
-            };
-            auto left = get_or_make(input(0).next());
-            auto right = get_or_make(input(1).next());
-            if (left == nullptr && right == nullptr)
-            {
-                left_plug->set_data(nullptr);
-                right_plug->set_data(nullptr);
-                m_left.next();
-                m_right.next();
-                return;
+                if (left == nullptr || right == nullptr) SF_THROW(std::logic_error{ "Not all mixing inputs same length" });
+                auto verbed = mreverb_process_block(m_reverb.get(), left, right);
+                left_plug->set_data(verbed.first);
+                right_plug->set_data(verbed.second);
+                free_block(m_left.next());
+                free_block(m_right.next());
             }
-            if (left == nullptr || right == nullptr) SF_THROW(std::logic_error{ "Not all mixing inputs same length" });
-            auto verbed = mreverb_process_block(m_reverb.get(), left, right);
-            left_plug->set_data(verbed.first);
-            right_plug->set_data(verbed.second);
-            free_block(m_left.next());
-            free_block(m_right.next());
         }
     }
     double* mreverberator::next() 
@@ -1015,6 +1018,7 @@ namespace sonic_field
 
     double* echo_chamber::next()
     {
+        SF_MESG_STACK("echo_chamber::next");
         return process_no_skip([&](double* block) {
             if (block)
             {

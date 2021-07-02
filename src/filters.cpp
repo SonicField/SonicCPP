@@ -211,11 +211,23 @@ namespace sonic_field
         in2{ 0 }
     {}
 
+    rbj_filter::memory rbj_filter::store_memory() const
+    {
+        return {ou1, ou2, in1, in2};
+    }
+
+    void rbj_filter::restore_memory(const rbj_filter::memory& from)
+    {
+        ou1 = from.m_ou1;
+        ou2 = from.m_ou2;
+        in1 = from.m_in1;
+        in2 = from.m_in2;
+    }
+
     signal_base* rbj_filter::copy()
     {
         return new rbj_filter{ b0a0, b1a0, b2a0, a1a0, a2a0 };
     }
-
 
     decimator::decimator()
     {
@@ -396,6 +408,48 @@ namespace sonic_field
     signal_base* ladder_filter_driver::copy()
     {
         return new ladder_filter_driver{};
+    }
+
+    shaped_rbj::shaped_rbj(filter_type type): m_memory{}, m_type{type}
+    {}
+
+    const char* shaped_rbj::name()
+    {
+        return "shaped_rbj";
+    }
+
+    double* shaped_rbj::next()
+    {
+        SF_MESG_STACK("shaped_rbj::next");
+        if (input_count() != 4)
+            SF_THROW(std::invalid_argument{ "Shaped RBJ filter requires four inputs (signal, frequency, q, db_gain)" });
+        double* signal = input(0).next();
+        double* frequency = input(1).next();
+        double* q = input(2).next();
+        double* db_gain = input(3).next();
+        if (signal == nullptr && frequency == nullptr && q == nullptr && db_gain == nullptr)
+            return nullptr;
+        if (signal == nullptr || frequency == nullptr || q == nullptr || db_gain == nullptr)
+            SF_THROW(std::invalid_argument{ "Inputs to shaped rbj filter do not have the same length" });
+        rbj_filter filter{m_type, frequency[0], q[0], db_gain[0]};
+        filter.restore_memory(m_memory);
+        auto ret = process_no_skip([&](double* block) {
+            for (uint64_t idx{ 0 }; idx < BLOCK_SIZE; ++idx)
+            {
+                block[idx] = filter.filter(block[idx]);
+            };
+            return block;
+            }, signal);
+        m_memory = filter.store_memory();
+        free_block(frequency);
+        free_block(q);
+        free_block(db_gain);
+        return ret;
+    }
+
+    signal_base* shaped_rbj::copy()
+    {
+        return new shaped_rbj{m_type};
     }
 
 } // sonic_field
