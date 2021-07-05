@@ -202,12 +202,24 @@ namespace sonic_field
             return "set_tempo=" + std::to_string(m_ms_per_quater);
         }
 
+        event_set_key_signature::event_set_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t major_minor):
+            event{offset, event_type::key_signature},
+            m_flats_sharps{flats_sharps},
+            m_major_minor{major_minor}
+        {}
+
+        std::string event_set_key_signature::to_string() const
+        {
+            return "set_key_signature=" + std::to_string(m_flats_sharps) + "/" + std::to_string(m_major_minor);
+        }
+
         event_ptr meta_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
             static std::unordered_map<meta_code, event_parser*> code_map
             {
-                {meta_code::set_tempo, new set_tempo_parser{}}
+                {meta_code::set_tempo, new set_tempo_parser{}},
+                {meta_code::key_signature, new set_key_signature_parser{}}
             };
             auto code = read_uint8(input);
             auto found = code_map.find(meta_code{code});
@@ -221,7 +233,34 @@ namespace sonic_field
         event_ptr set_tempo_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
-            SF_THROW(std::logic_error{"Not implemented"});
+            auto check_value = read_uint8(input);
+            if (check_value != 0x03)
+            {
+                SF_THROW(std::invalid_argument{
+                        "set tempo second byte expected 0x03 got: " + std::to_string(check_value)});
+            }
+            uint32_t ms_per_quater = 0;
+            // The next three bytes are the value big endian.
+            ms_per_quater += read_uint8(input);
+            ms_per_quater <<= 8;
+            ms_per_quater += read_uint8(input);
+            ms_per_quater <<= 8;
+            ms_per_quater += read_uint8(input);
+            return event_ptr{new event_set_tempo{0, ms_per_quater}};
+        }
+
+        event_ptr set_key_signature_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            auto check_value = read_uint8(input);
+            if (check_value != 0x02)
+            {
+                SF_THROW(std::invalid_argument{"set key signature second byt expected 0x02 got: " +
+                        std::to_string(check_value)});
+            }
+            int8_t sharps_flats = static_cast<int8_t>(read_uint8(input));
+            uint8_t major_minor = read_uint8(input);
+            return event_ptr{new event_set_key_signature{0, sharps_flats, major_minor}};
         }
 
         event_ptr parse_event(std::istream& input)

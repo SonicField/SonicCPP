@@ -36,12 +36,17 @@ namespace sonic_field
         assertEqual(h.m_ntrks, 2, "number of tracks");
         assertEqual(h.m_format, 1, "format");
         assertEqual(is_smtpe(h), true, "is smtpe");
-        // TODO: this makes no sense - need to see if this is because it is a 'dummy' track or some such.
         assertEqual(int(smtpe_type(h)), 127, "smtpe type");
+        // m_division comes out as FFC0 which is -1 for the format and 192 resolution.  As this makes no
+        // sense to me I can only assume I am doing something wrong here. Interestingly the first event is
+        // set_tempo which maybe has something to do with all this?
         std::cout << "header: " << h << std::endl;
         auto tc = midi::read_chunk(file);
         assertEqual(type_of_chunk(tc), midi::chunk_type::track, "track chunk type");
         std::cout << "Track: " << tc << std::endl;
-        std::cout << "First event: " << *midi::parse_event(file) << std::endl;
+        auto event1 =  midi::parse_event(file);
+        std::cout << "First event: " << *event1 << std::endl;
+        assertEqual(int(event1->m_type), int(midi::event_type::set_tempo), "First track event is set temp");
+        std::cout << "Second event: " << *midi::parse_event(file) << std::endl;
     }
 }

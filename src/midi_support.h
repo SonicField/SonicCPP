@@ -14,7 +14,8 @@ namespace sonic_field
 
         enum struct event_type : uint32_t
         {
-            set_tempo
+            set_tempo,
+            key_signature
         };
 
         enum struct event_code_full : uint8_t
@@ -85,10 +86,20 @@ namespace sonic_field
             std::string to_string() const override;
         };
 
+        struct event_set_key_signature: event
+        {
+            int8_t m_flats_sharps;
+            uint8_t m_major_minor;
+            event_set_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t m_major_minor);
+            std::string to_string() const override;
+        };
+
         // Event parsing functor.
         struct event_parser
         {
             virtual event_ptr operator()(std::istream& input) const = 0;
+            // Virtual destructor to ensure the dispatch machinery is deleted correctly.
+            virtual ~event_parser(){} 
         };
 
         struct meta_parser: event_parser
@@ -97,6 +108,11 @@ namespace sonic_field
         };
 
         struct set_tempo_parser: event_parser
+        {
+            event_ptr operator()(std::istream& input) const override;
+        };
+
+        struct set_key_signature_parser: event_parser
         {
             event_ptr operator()(std::istream& input) const override;
         };
