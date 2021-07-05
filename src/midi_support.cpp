@@ -1,6 +1,8 @@
 #include "midi_support.h"
 #include <fstream>
 #include <ios>
+#include <type_traits>
+#include <unordered_map>
 
 namespace sonic_field
 {
@@ -19,6 +21,26 @@ namespace sonic_field
                 m_stream.flags(m_flags);
             }
         };
+
+        std::ostream& operator << (std::ostream& out, const chunk_type& ct)
+        {
+            SF_MARK_STACK;
+            switch(ct)
+            {
+                case chunk_type::header:
+                    out << "CHUNK_TYPE_HEADER";
+                    break;
+                case chunk_type::track:
+                    out << "CHUNK_TYPE_TRACK";
+                    break;
+                default:
+                    // The type system means this should never happen - but I guess you never know, because
+                    // of code rot.
+                    SF_THROW(std::invalid_argument{"Unknown chunk type: " +
+                        std::to_string(int(ct))});
+            }
+            return out;
+        }
 
         std::ostream& operator << (std::ostream& out, const chunk& c)
         {
@@ -50,20 +72,7 @@ namespace sonic_field
         {
             SF_MARK_STACK;
             stream_state_save s{ out };
-            out << std::dec;
-            out << "MIDI_EVENT{m_m_offset: " << e.m_offset;
-            out << ", m_data{";
-            out << std::hex;
-            auto cma = false;
-            for (auto d : e.m_data)
-            {
-                if (cma)
-                    out << ", ";
-                else
-                    cma = true;
-                out << d;
-            }
-            out << "}}";
+            out << "MIDI_EVENT{" << e.to_string() << "}";
             return out;
         }
 
@@ -120,7 +129,6 @@ namespace sonic_field
                 ret <<= 7;
                 safe_read(input, &element, 1);
             }
-            safe_read(input, &element, 1);
             ret |= element & 0x7F;
             return ret;
         }
@@ -141,8 +149,8 @@ namespace sonic_field
             static auto hd = *reinterpret_cast<const uint32_t*>(TYPE_MThd);
             static auto hr = *reinterpret_cast<const uint32_t*>(TYPE_MTrk);
             auto tp = *reinterpret_cast<const uint32_t*>(c.m_type);
-            if (tp == hd) return header_type;
-            if (tp == hr) return track_type;
+            if (tp == hd) return chunk_type::header;
+            if (tp == hr) return chunk_type::track;
             SF_THROW(std::invalid_argument{ "Unknown chunk type: " + std::string{c.m_type, 4} });
         }
 
@@ -151,7 +159,7 @@ namespace sonic_field
             SF_MARK_STACK;
             header ret{};
             ret.m_chunk = read_chunk(input);
-            if (type_of_chunk(ret.m_chunk) != header_type)
+            if (type_of_chunk(ret.m_chunk) != chunk_type::header)
                 SF_THROW(std::invalid_argument{ "Expected header chunk got: " + std::string{ret.m_chunk.m_type, 4} });
             if (ret.m_chunk.m_size != 6)
                 SF_THROW(std::out_of_range{ "Expected header size to be 6 was: " + std::to_string(ret.m_chunk.m_size) });
@@ -182,6 +190,65 @@ namespace sonic_field
             std::cerr << "Reading midi: " << name << std::endl;
             std::ifstream file{ name, std::ios_base::in | std::ios_base::binary };
             read_header(file);
+        }
+
+        event_set_tempo::event_set_tempo(uint32_t offset, uint32_t ms_per_quater):
+            event{offset, event_type::set_tempo},
+            m_ms_per_quater{ms_per_quater}
+        {}
+
+        std::string event_set_tempo::to_string() const
+        {
+            return "set_tempo=" + std::to_string(m_ms_per_quater);
+        }
+
+        event_ptr meta_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            static std::unordered_map<meta_code, event_parser*> code_map
+            {
+                {meta_code::set_tempo, new set_tempo_parser{}}
+            };
+            auto code = read_uint8(input);
+            auto found = code_map.find(meta_code{code});
+            if (found == code_map.end())
+            {
+                SF_THROW(std::invalid_argument{"meta code " + std::to_string(code) + " not found"});
+            }
+            return (*found->second)(input);
+        }
+
+        event_ptr set_tempo_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            SF_THROW(std::logic_error{"Not implemented"});
+        }
+
+        event_ptr parse_event(std::istream& input)
+        {
+            SF_MARK_STACK;
+            // Read the offset as a vlq.
+            auto offset = read_vlq(input);
+
+            // Map a full even code to an event parser. Should the parser not be found in this map
+            // then we try the message map.  Note that we could use a switch statement for dispatch
+            // here; I did it this way because it appealed to me - a switch is probably a better option
+            // but - this code is for fun :)
+            static std::unordered_map<event_code_full, event_parser* > full_map
+            {
+                {event_code_full::meta_event, new meta_parser{}}
+            };
+            auto code = read_uint8(input);
+            auto found = full_map.find(event_code_full{code});
+            if (found == full_map.end())
+            {
+                SF_THROW(std::logic_error{"Only full event codes implemented; found: " + std::to_string(code)});
+            }
+  
+            // Create the event with a zero offset then set the offset on return.
+            auto ret_event = (*(found->second))(input);
+            ret_event->m_offset = offset;
+            return ret_event;
         }
     }
 }

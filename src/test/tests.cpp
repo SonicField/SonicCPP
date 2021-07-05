@@ -32,13 +32,16 @@ namespace sonic_field
         test_header("Correct header chunk");
         auto h = midi::read_header(file);
         assertEqual(h.m_chunk.m_size, 6, "header chunk size");
-        assertEqual(type_of_chunk(h.m_chunk), midi::header_type, "header chunk type");
+        assertEqual(type_of_chunk(h.m_chunk), midi::chunk_type::header, "header chunk type");
         assertEqual(h.m_ntrks, 2, "number of tracks");
         assertEqual(h.m_format, 1, "format");
         assertEqual(is_smtpe(h), true, "is smtpe");
-        // TODO: this makes no sense - beed to see if this is because it is a 'dummy' track or some such.
+        // TODO: this makes no sense - need to see if this is because it is a 'dummy' track or some such.
         assertEqual(int(smtpe_type(h)), 127, "smtpe type");
+        std::cout << "header: " << h << std::endl;
         auto tc = midi::read_chunk(file);
-        assertEqual(type_of_chunk(tc), midi::track_type, "track chunk type");
+        assertEqual(type_of_chunk(tc), midi::chunk_type::track, "track chunk type");
+        std::cout << "Track: " << tc << std::endl;
+        std::cout << "First event: " << *midi::parse_event(file) << std::endl;
     }
 }
