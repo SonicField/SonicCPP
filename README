@@ -1,0 +1,20 @@
+SonicCPP is a reasonant sythesis engine
+=======================================
+
+Resonant sythesis is the creation of sounds by using resonant filtering.
+SonicCPP offers a framework for doing this.
+It has a pool based memory system which passes blocks of 1ms of samples between
+processors.
+Processors are stateful so they can act as filters.
+There are also processors for things like tape effects and reverb.
+
+SonicCPP does not have an interpreted DSL or any such thing.
+To use it a music C++ file needs to be created.
+
+Currently I am working on the midi parser.
+When that is done I might then work on a DSL to mapping midi to processors;
+but then maybe not.
+
+It is built from the included Makefile. I am not very good at make file programming
+so whilst it works on C++17/g++ on the Mac it does not currently dependency track
+between headers and .cpp files. Again - one day maybe...
