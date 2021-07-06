@@ -14,8 +14,9 @@ namespace sonic_field
 
         enum struct event_type : uint32_t
         {
-            set_tempo,
-            key_signature
+            tempo,
+            key_signature,
+            copyright
         };
 
         enum struct event_code_full : uint8_t
@@ -35,7 +36,7 @@ namespace sonic_field
 
         enum struct meta_code : uint8_t
         {
-            copy_right      = 0x02,
+            copyright       = 0x02,
             track_name      = 0x03,
             instrument_name = 0x04,
             lyric           = 0x05,
@@ -43,7 +44,7 @@ namespace sonic_field
             cue_point       = 0x07,
             channel_prefix  = 0x20,
             end_of_track    = 0x2F,
-            set_tempo       = 0x51,
+            tempo           = 0x51,
             smpte_offset    = 0x54,
             time_signature  = 0x58,
             key_signature   = 0x59,
@@ -79,18 +80,25 @@ namespace sonic_field
 
         typedef std::shared_ptr<event> event_ptr;
 
-        struct event_set_tempo: event
+        struct event_tempo: event
         {
             uint32_t m_ms_per_quater;
-            event_set_tempo(uint32_t offset, uint32_t ms_per_quater);
+            event_tempo(uint32_t offset, uint32_t ms_per_quater);
             std::string to_string() const override;
         };
 
-        struct event_set_key_signature: event
+        struct event_key_signature: event
         {
             int8_t m_flats_sharps;
             uint8_t m_major_minor;
-            event_set_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t m_major_minor);
+            event_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t m_major_minor);
+            std::string to_string() const override;
+        };
+
+        struct event_copyright: event
+        {
+            std::string m_text;
+            event_copyright(uint32_t offset, const std::string& text);
             std::string to_string() const override;
         };
 
@@ -107,12 +115,17 @@ namespace sonic_field
             virtual event_ptr operator()(std::istream& input) const override;
         };
 
-        struct set_tempo_parser: event_parser
+        struct tempo_parser: event_parser
         {
             event_ptr operator()(std::istream& input) const override;
         };
 
-        struct set_key_signature_parser: event_parser
+        struct key_signature_parser: event_parser
+        {
+            event_ptr operator()(std::istream& input) const override;
+        };
+
+        struct copyright_parser: event_parser
         {
             event_ptr operator()(std::istream& input) const override;
         };

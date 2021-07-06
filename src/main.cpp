@@ -60,12 +60,12 @@ int main(int argc, char** argv)
 			}
 		}
 
-		auto in = [&](const std::string& key)
+		auto in = [&](const auto& key)
 		{
 			return options.find(key) != options.end();
 		};
 
-		auto not_in = [&](const std::string& key)
+		auto not_in = [&](const auto& key)
 		{
 			return !in(key);
 		};

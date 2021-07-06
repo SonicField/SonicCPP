@@ -72,7 +72,7 @@ namespace sonic_field
         {
             SF_MARK_STACK;
             stream_state_save s{ out };
-            out << "MIDI_EVENT{" << e.to_string() << "}";
+            out << "MIDI_EVENT@" + std::to_string(e.m_offset) + "{" << e.to_string() << "}";
             return out;
         }
 
@@ -192,25 +192,35 @@ namespace sonic_field
             read_header(file);
         }
 
-        event_set_tempo::event_set_tempo(uint32_t offset, uint32_t ms_per_quater):
-            event{offset, event_type::set_tempo},
+        event_tempo::event_tempo(uint32_t offset, uint32_t ms_per_quater):
+            event{offset, event_type::tempo},
             m_ms_per_quater{ms_per_quater}
         {}
 
-        std::string event_set_tempo::to_string() const
+        std::string event_tempo::to_string() const
         {
-            return "set_tempo=" + std::to_string(m_ms_per_quater);
+            return "tempo=" + std::to_string(m_ms_per_quater);
         }
 
-        event_set_key_signature::event_set_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t major_minor):
+        event_key_signature::event_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t major_minor):
             event{offset, event_type::key_signature},
             m_flats_sharps{flats_sharps},
             m_major_minor{major_minor}
         {}
 
-        std::string event_set_key_signature::to_string() const
+        std::string event_key_signature::to_string() const
         {
-            return "set_key_signature=" + std::to_string(m_flats_sharps) + "/" + std::to_string(m_major_minor);
+            return "key_signature=" + std::to_string(m_flats_sharps) + "/" + std::to_string(m_major_minor);
+        }
+
+        event_copyright::event_copyright(uint32_t offset, const std::string& text):
+            event{offset, event_type::copyright},
+            m_text{text}
+        {}
+
+        std::string event_copyright::to_string() const
+        {
+            return "copyright='" + m_text + "'";
         }
 
         event_ptr meta_parser::operator()(std::istream& input) const
@@ -218,8 +228,9 @@ namespace sonic_field
             SF_MARK_STACK;
             static std::unordered_map<meta_code, event_parser*> code_map
             {
-                {meta_code::set_tempo, new set_tempo_parser{}},
-                {meta_code::key_signature, new set_key_signature_parser{}}
+                {meta_code::tempo, new tempo_parser{}},
+                {meta_code::key_signature, new key_signature_parser{}},
+                {meta_code::copyright, new copyright_parser{}}
             };
             auto code = read_uint8(input);
             auto found = code_map.find(meta_code{code});
@@ -227,10 +238,10 @@ namespace sonic_field
             {
                 SF_THROW(std::invalid_argument{"meta code " + std::to_string(code) + " not found"});
             }
-            return (*found->second)(input);
+            return found->second->operator()(input);
         }
 
-        event_ptr set_tempo_parser::operator()(std::istream& input) const
+        event_ptr tempo_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
             auto check_value = read_uint8(input);
@@ -246,10 +257,10 @@ namespace sonic_field
             ms_per_quater += read_uint8(input);
             ms_per_quater <<= 8;
             ms_per_quater += read_uint8(input);
-            return event_ptr{new event_set_tempo{0, ms_per_quater}};
+            return event_ptr{new event_tempo{0, ms_per_quater}};
         }
 
-        event_ptr set_key_signature_parser::operator()(std::istream& input) const
+        event_ptr key_signature_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
             auto check_value = read_uint8(input);
@@ -260,7 +271,29 @@ namespace sonic_field
             }
             int8_t sharps_flats = static_cast<int8_t>(read_uint8(input));
             uint8_t major_minor = read_uint8(input);
-            return event_ptr{new event_set_key_signature{0, sharps_flats, major_minor}};
+            return event_ptr{new event_key_signature{0, sharps_flats, major_minor}};
+        }
+
+        auto parse_text_field(std::istream& input)
+        {
+            auto len = read_vlq(input);
+            // The compiler finds an ambiguity on initialization if we use the standard {}
+            // syntax here - falling back to () fixes this but it is confusing to say the least.
+            std::string text(len, '\0');
+            safe_read(input, text.data(), len);
+            // Ensure the text is ASCII by forcing anything out of text range to be '.'.
+            for(size_t i{0}; i<text.size(); ++i)
+            {
+                if (text[i] < ' ' || text[i] > 127)
+                    text[i] = '.';
+            }
+            return text;
+        }
+
+        event_ptr copyright_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            return event_ptr{new event_copyright{0, parse_text_field(input)}};
         }
 
         event_ptr parse_event(std::istream& input)
@@ -285,7 +318,7 @@ namespace sonic_field
             }
   
             // Create the event with a zero offset then set the offset on return.
-            auto ret_event = (*(found->second))(input);
+            auto ret_event = found->second->operator()(input);
             ret_event->m_offset = offset;
             return ret_event;
         }
