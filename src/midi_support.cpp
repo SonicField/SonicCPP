@@ -213,16 +213,6 @@ namespace sonic_field
             return "key_signature=" + std::to_string(m_flats_sharps) + "/" + std::to_string(m_major_minor);
         }
 
-        event_copyright::event_copyright(uint32_t offset, const std::string& text):
-            event{offset, event_type::copyright},
-            m_text{text}
-        {}
-
-        std::string event_copyright::to_string() const
-        {
-            return "copyright='" + m_text + "'";
-        }
-
         event_ptr meta_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
@@ -230,7 +220,11 @@ namespace sonic_field
             {
                 {meta_code::tempo, new tempo_parser{}},
                 {meta_code::key_signature, new key_signature_parser{}},
-                {meta_code::copyright, new copyright_parser{}}
+                {meta_code::copyright, new copyright_parser{}},
+                {meta_code::track_name, new track_name_parser{}},
+                {meta_code::instrument_name, new instrument_name_parser{}},
+                {meta_code::marker, new marker_parser{}},
+                {meta_code::cue_point, new cue_point_parser{}},
             };
             auto code = read_uint8(input);
             auto found = code_map.find(meta_code{code});
@@ -274,7 +268,7 @@ namespace sonic_field
             return event_ptr{new event_key_signature{0, sharps_flats, major_minor}};
         }
 
-        auto parse_text_field(std::istream& input)
+        std::string parse_text_field(std::istream& input)
         {
             auto len = read_vlq(input);
             // The compiler finds an ambiguity on initialization if we use the standard {}
@@ -288,12 +282,6 @@ namespace sonic_field
                     text[i] = '.';
             }
             return text;
-        }
-
-        event_ptr copyright_parser::operator()(std::istream& input) const
-        {
-            SF_MARK_STACK;
-            return event_ptr{new event_copyright{0, parse_text_field(input)}};
         }
 
         event_ptr parse_event(std::istream& input)

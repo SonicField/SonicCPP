@@ -16,7 +16,12 @@ namespace sonic_field
         {
             tempo,
             key_signature,
-            copyright
+            copyright,
+            track_name,
+            instrument_name,
+            lyric,
+            marker,
+            cue_point
         };
 
         enum struct event_code_full : uint8_t
@@ -95,11 +100,64 @@ namespace sonic_field
             std::string to_string() const override;
         };
 
-        struct event_copyright: event
+        template<event_type C>
+        struct text_event: event
         {
             std::string m_text;
-            event_copyright(uint32_t offset, const std::string& text);
-            std::string to_string() const override;
+            text_event(uint32_t offset, const std::string& text):
+                event{offset, C},
+                m_text(text)
+            {}
+
+            virtual std::string to_string() const override
+            {
+                return name() + "='" + m_text + "'";
+            }
+
+        protected:
+            virtual std::string name() const = 0;
+        };
+
+        struct event_copyright: text_event<event_type::copyright>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "copyright";}
+        };
+
+        struct event_lyric: text_event<event_type::lyric>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "lyric";}
+        };
+
+        struct event_track_name: text_event<event_type::track_name>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "track_name";}
+        };
+
+        struct event_instrument_name: text_event<event_type::instrument_name>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "instrument_name";}
+        };
+
+        struct event_cue_point: text_event<event_type::cue_point>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "cue_point";}
+        };
+
+        struct event_marker: text_event<event_type::marker>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "marker";}
         };
 
         // Event parsing functor.
@@ -125,10 +183,23 @@ namespace sonic_field
             event_ptr operator()(std::istream& input) const override;
         };
 
-        struct copyright_parser: event_parser
+        std::string parse_text_field(std::istream& input);
+        template<typename E>
+        struct text_event_parser: event_parser
         {
-            event_ptr operator()(std::istream& input) const override;
+            event_ptr operator()(std::istream& input) const
+            {
+                SF_MARK_STACK;
+                return event_ptr{new E{0, parse_text_field(input)}};
+            }
         };
+
+        struct copyright_parser: text_event_parser<event_copyright>{};
+        struct track_name_parser: text_event_parser<event_track_name>{};
+        struct instrument_name_parser: text_event_parser<event_instrument_name>{};
+        struct lyric_parser: text_event_parser<event_lyric>{};
+        struct marker_parser: text_event_parser<event_marker>{};
+        struct cue_point_parser: text_event_parser<event_cue_point>{};
 
         std::ostream& operator << (std::ostream& out, const chunk_type& ct);
         std::ostream& operator << (std::ostream& out, const chunk& c);

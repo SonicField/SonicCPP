@@ -62,7 +62,7 @@ namespace sonic_field
 
         auto event3 =  midi::parse_event(file);
         std::cout << "Third event: " << *event3 << std::endl;
-        //auto event4 =  midi::parse_event(file);
-        //std::cout << "Foruth event: " << *event4 << std::endl;
+        auto event4 =  midi::parse_event(file);
+        std::cout << "Fourth event: " << *event4 << std::endl;
     }
 }
