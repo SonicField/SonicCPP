@@ -21,7 +21,8 @@ namespace sonic_field
             instrument_name,
             lyric,
             marker,
-            cue_point
+            cue_point,
+            meta_unknown
         };
 
         enum struct event_code_full : uint8_t
@@ -37,6 +38,17 @@ namespace sonic_field
             stop                  = 0b11111100,
             active_sensing        = 0b11111110,
             meta_event            = 0b11111111  // Also is reset but not in files.
+        };
+
+        enum struct event_code_msg : uint8_t
+        {
+            note_off         = 0b1000,
+            note_on          = 0b1001,
+            key_pressure     = 0b1010,
+            control          = 0b1011,
+            program          = 0b1100,
+            channel_pressure = 0b1101,
+            pitch            = 0b1110
         };
 
         enum struct meta_code : uint8_t
@@ -100,6 +112,21 @@ namespace sonic_field
             std::string to_string() const override;
         };
 
+        struct event_time_signature: event
+        {
+            uint8_t m_numerator;
+            uint8_t m_denominator;
+            uint8_t m_clocks_per_tick;
+            uint8_t m_thirty_two_in_quater;
+            event_time_signature(
+                    uint32_t offset,
+                    uint8_t numerator,
+                    uint8_t denominator,
+                    uint8_t clocks_per_tick,
+                    uint8_t thirty_two_in_quater);
+            std::string to_string() const override;
+        };
+
         template<event_type C>
         struct text_event: event
         {
@@ -160,6 +187,67 @@ namespace sonic_field
             std::string name() const override {return "marker";}
         };
 
+        struct event_meta_unknown: text_event<event_type::meta_unknown>
+        {
+            using text_event::text_event;
+        protected:
+            std::string name() const override {return "meta_unknown";}
+        };
+
+        template<event_type C>
+        struct msg_zero_event: event
+        {
+            msg_zero_event(uint32_t offset):
+                event{offset, C}
+            {}
+
+            virtual std::string to_string() const override
+            {
+                return name();
+            }
+
+        protected:
+            virtual std::string name() const = 0;
+        };
+
+        template<event_type C>
+        struct msg_one_event: event
+        {
+            uint8_t m_one;
+            msg_one_event(uint32_t offset, uint8_t one):
+                event{offset, C},
+                m_one{one}
+            {}
+
+            virtual std::string to_string() const override
+            {
+                return name() + "=" + std::to_string(m_one);
+            }
+
+        protected:
+            virtual std::string name() const = 0;
+        };
+
+        template<event_type C>
+        struct msg_two_event: event
+        {
+            uint8_t m_one;
+            uint8_t m_two;
+            msg_two_event(uint32_t offset, uint8_t one, uint8_t two):
+                event{offset, C},
+                m_one{one},
+                m_two{two}
+            {}
+
+            virtual std::string to_string() const override
+            {
+                return name() + "=" + std::to_string(m_one) + "," + std::to_string(m_two);
+            }
+
+        protected:
+            virtual std::string name() const = 0;
+        };
+
         // Event parsing functor.
         struct event_parser
         {
@@ -183,6 +271,11 @@ namespace sonic_field
             event_ptr operator()(std::istream& input) const override;
         };
 
+        struct time_signature_parser: event_parser
+        {
+            event_ptr operator()(std::istream& input) const override;
+        };
+
         std::string parse_text_field(std::istream& input);
         template<typename E>
         struct text_event_parser: event_parser
@@ -200,6 +293,7 @@ namespace sonic_field
         struct lyric_parser: text_event_parser<event_lyric>{};
         struct marker_parser: text_event_parser<event_marker>{};
         struct cue_point_parser: text_event_parser<event_cue_point>{};
+        struct meta_unknown_parser: text_event_parser<event_meta_unknown>{};
 
         std::ostream& operator << (std::ostream& out, const chunk_type& ct);
         std::ostream& operator << (std::ostream& out, const chunk& c);

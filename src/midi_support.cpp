@@ -213,6 +213,25 @@ namespace sonic_field
             return "key_signature=" + std::to_string(m_flats_sharps) + "/" + std::to_string(m_major_minor);
         }
 
+        event_time_signature::event_time_signature(
+                    uint32_t offset,
+                    uint8_t numerator,
+                    uint8_t denominator,
+                    uint8_t clocks_per_tick,
+                    uint8_t thirty_two_in_quater):
+            event{offset, event_type::key_signature},
+            m_numerator{numerator},
+            m_denominator{denominator},
+            m_clocks_per_tick{clocks_per_tick},
+            m_thirty_two_in_quater{thirty_two_in_quater}
+        {}
+
+        std::string event_time_signature::to_string() const
+        {
+            return "time_signature=" + std::to_string(m_numerator) + "/" + std::to_string(m_denominator) +\
+                "," + std::to_string(m_clocks_per_tick) + "," + std::to_string(m_thirty_two_in_quater);
+        }
+
         event_ptr meta_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
@@ -225,13 +244,19 @@ namespace sonic_field
                 {meta_code::instrument_name, new instrument_name_parser{}},
                 {meta_code::marker, new marker_parser{}},
                 {meta_code::cue_point, new cue_point_parser{}},
+                {meta_code::time_signature, new time_signature_parser{}},
             };
             auto code = read_uint8(input);
             auto found = code_map.find(meta_code{code});
+            // If we have not found a parser then we can 'ignore' the event and create an unknown.
+            // This will be a text_event and have a text field but that will have been rationalized into
+            // printable ASCII (with . replacing unprintable) so it will still be safe to use.
             if (found == code_map.end())
             {
-                SF_THROW(std::invalid_argument{"meta code " + std::to_string(code) + " not found"});
+                static event_parser* unknown = new meta_unknown_parser{};
+                return unknown->operator()(input);
             }
+            // We have a specific parser for this meta so parse it.
             return found->second->operator()(input);
         }
 
@@ -260,12 +285,25 @@ namespace sonic_field
             auto check_value = read_uint8(input);
             if (check_value != 0x02)
             {
-                SF_THROW(std::invalid_argument{"set key signature second byt expected 0x02 got: " +
+                SF_THROW(std::invalid_argument{"set key signature second byte expected 0x02 got: " +
                         std::to_string(check_value)});
             }
             int8_t sharps_flats = static_cast<int8_t>(read_uint8(input));
             uint8_t major_minor = read_uint8(input);
             return event_ptr{new event_key_signature{0, sharps_flats, major_minor}};
+        }
+
+        event_ptr time_signature_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            auto check_value = read_uint8(input);
+            if (check_value != 0x04)
+            {
+                SF_THROW(std::invalid_argument{"set time signature second byte expected 0x04 got: " +
+                        std::to_string(check_value)});
+            }
+            return event_ptr{new event_time_signature{0, read_uint8(input), read_uint8(input), read_uint8(input),
+                read_uint8(input)}};
         }
 
         std::string parse_text_field(std::istream& input)

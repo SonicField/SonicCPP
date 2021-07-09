@@ -5,6 +5,7 @@ namespace sonic_field
 {
     // Test declarations go here.
     void test_midi_a(const std::string&);
+    void test_comms();
 
     // Test machinery.
     class assertion_error : public std::runtime_error

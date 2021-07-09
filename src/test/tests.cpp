@@ -1,5 +1,6 @@
 #include "tests.h"
 #include "../midi_support.h"
+#include "../comms.h"
 
 namespace sonic_field
 {
@@ -7,8 +8,11 @@ namespace sonic_field
         m_failed{ 0 }, m_ran{ 0 }, m_data_dir{ data_dir }
     {
         // run tests here.
+        std::cout << "Running tests with data dir=" << m_data_dir << std::endl;
+
         try_run("Dummy test", [] { std::cout << "Dummy test" << std::endl; });
-        try_run("Midi test a", [&] { test_midi_a(m_data_dir); });
+        //try_run("Midi test a", [&] { test_midi_a(m_data_dir); });
+        try_run("Comms tests", [&] { test_comms(); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
@@ -64,5 +68,15 @@ namespace sonic_field
         std::cout << "Third event: " << *event3 << std::endl;
         auto event4 =  midi::parse_event(file);
         std::cout << "Fourth event: " << *event4 << std::endl;
+        while(true)
+        {
+            auto event5 =  midi::parse_event(file);
+            std::cout << "Fith event: " << *event5 << std::endl;
+        }
+    }
+
+    void test_comms()
+    {
+        comms::run_tests();
     }
 }
