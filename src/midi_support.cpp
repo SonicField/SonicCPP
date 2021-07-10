@@ -328,14 +328,34 @@ namespace sonic_field
             // Read the offset as a vlq.
             auto offset = read_vlq(input);
 
-            // Map a full even code to an event parser. Should the parser not be found in this map
+            // Short hand for emplacing something to avoid typing and boilerplate.
+            static auto ep = [](auto& m, auto&&... params)
+            {
+                m.emplace(std::forward<decltype(params)>(params)...);
+            };
+
+            // Map a full event code to an event parser. Should the parser not be found in this map
             // then we try the message map.  Note that we could use a switch statement for dispatch
             // here; I did it this way because it appealed to me - a switch is probably a better option
             // but - this code is for fun :)
-            static std::unordered_map<event_code_full, event_parser* > full_map
+            static auto full_map = [ep=ep]
             {
-                {event_code_full::meta_event, new meta_parser{}}
-            };
+                typedef std::unique_ptr<event_parser> v_t;
+                std::unordered_map<event_code_full, v_t > m{};
+                ep(m, event_code_full::meta_event, v_t{new meta_parser{}});
+                return m;
+            }();
+
+            // Map channel events using the top 4 bits for the key then we get the channel from the bottom
+            // four bits.
+            static auto channel_map = [ep=ep]
+            {
+                typedef std::unique_ptr<channel_msg_event_parser> v_t;
+                std::unordered_map<event_code_msg, v_t> m{};
+                ep(m, event_code_msg::note_on, v_t{new note_on_event_parser{}});
+                return m;
+            }();
+
             auto code = read_uint8(input);
             auto found = full_map.find(event_code_full{code});
             if (found == full_map.end())

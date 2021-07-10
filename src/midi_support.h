@@ -1,3 +1,5 @@
+#include <sstream>
+#include <array>
 #include "sonic_field.h"
 
 namespace sonic_field
@@ -22,8 +24,43 @@ namespace sonic_field
             lyric,
             marker,
             cue_point,
-            meta_unknown
+            meta_unknown,
+            note_off,
+            note_on,
+            key_pressure,
+            control,
+            program,
+            channel_pressure,
+            pitch,
+            sys_exclusive,
+            song_position_pointer,
+            song_select,
+            tune_request,
+            end_of_exclusive,
+            timing_clock,
+            start,
+            cont,
+            stop,
+            active_sensing
         };
+
+        std::string event_type_to_string(event_type t)
+        {
+            switch(t)
+            {
+                // TODO the rest!
+                case event_type::note_off:         return "note_off";
+                case event_type::note_on:          return "note_on";
+                case event_type::key_pressure:     return "key_pressure";
+                case event_type::control:          return "note_off";
+                case event_type::program:          return "program";
+                case event_type::channel_pressure: return "program";
+                case event_type::pitch:            return "pitch";
+                default: SF_THROW(std::invalid_argument{
+                                 "Unknown msg type: " +
+                                 std::to_string(static_cast<std::underlying_type_t<event_type>>(t))});
+            }
+        }
 
         enum struct event_code_full : uint8_t
         {
@@ -42,13 +79,13 @@ namespace sonic_field
 
         enum struct event_code_msg : uint8_t
         {
-            note_off         = 0b1000,
-            note_on          = 0b1001,
-            key_pressure     = 0b1010,
-            control          = 0b1011,
-            program          = 0b1100,
-            channel_pressure = 0b1101,
-            pitch            = 0b1110
+            note_off         = 0b10000000, // 2
+            note_on          = 0b10010000, // 2
+            key_pressure     = 0b10100000, // 2
+            control          = 0b10110000, // 2
+            program          = 0b11000000, // 1
+            channel_pressure = 0b11010000, // 1
+            pitch            = 0b11100000, // 2
         };
 
         enum struct meta_code : uint8_t
@@ -194,58 +231,75 @@ namespace sonic_field
             std::string name() const override {return "meta_unknown";}
         };
 
-        template<event_type C>
-        struct msg_zero_event: event
+        template<event_type C, size_t N>
+        struct msg_event: event
         {
-            msg_zero_event(uint32_t offset):
-                event{offset, C}
+            static constexpr auto size = N;
+            std::array<uint8_t, N> m_data;
+            msg_event(uint32_t offset, std::array<uint8_t, N>&& data):
+                event{offset, C},
+                m_data{std::forward<decltype(data)>(data)}
             {}
 
             virtual std::string to_string() const override
             {
-                return name();
+                std::stringstream ret{};
+                ret << "message" << event_type_to_string(m_type) << ": ";
+                bool first{true};
+                for(const auto v: m_data)
+                {
+                    if (first)
+                        first = false;
+                    else
+                        ret << "/";
+                    ret << v;
+                }
+                return ret.str();
             }
-
-        protected:
-            virtual std::string name() const = 0;
         };
 
-        template<event_type C>
-        struct msg_one_event: event
+        template<event_type C, size_t N>
+        struct channel_msg_event: msg_event<C, N>
         {
-            uint8_t m_one;
-            msg_one_event(uint32_t offset, uint8_t one):
-                event{offset, C},
-                m_one{one}
+            uint8_t m_channel;
+            channel_msg_event(uint32_t offset, std::array<uint8_t, N>&& data, uint8_t channel):
+                msg_event<C, N>{offset, std::forward<decltype(data)>(data)},
+                m_channel{channel}
             {}
 
             virtual std::string to_string() const override
             {
-                return name() + "=" + std::to_string(m_one);
+                return msg_event<C, N>::to_string() + "#" + std::to_string(m_channel);
             }
-
-        protected:
-            virtual std::string name() const = 0;
         };
 
-        template<event_type C>
-        struct msg_two_event: event
+        struct note_off_event: channel_msg_event<event_type::note_off, 2>
         {
-            uint8_t m_one;
-            uint8_t m_two;
-            msg_two_event(uint32_t offset, uint8_t one, uint8_t two):
-                event{offset, C},
-                m_one{one},
-                m_two{two}
-            {}
-
-            virtual std::string to_string() const override
-            {
-                return name() + "=" + std::to_string(m_one) + "," + std::to_string(m_two);
-            }
-
-        protected:
-            virtual std::string name() const = 0;
+            using channel_msg_event::channel_msg_event;
+        };
+        struct note_on_event: channel_msg_event<event_type::note_on, 2>
+        {
+            using channel_msg_event::channel_msg_event;
+        };
+        struct key_pressure_event: channel_msg_event<event_type::key_pressure, 2>
+        {
+            using channel_msg_event::channel_msg_event;
+        };
+        struct control_event: channel_msg_event<event_type::control, 2>
+        {
+            using channel_msg_event::channel_msg_event;
+        };
+        struct program_event: channel_msg_event<event_type::program, 1>
+        {
+            using channel_msg_event::channel_msg_event;
+        };
+        struct channel_pressure_event: channel_msg_event<event_type::channel_pressure, 1>
+        {
+            using channel_msg_event::channel_msg_event;
+        };
+        struct pitch_pressure_event: channel_msg_event<event_type::pitch, 1>
+        {
+            using channel_msg_event::channel_msg_event;
         };
 
         // Event parsing functor.
@@ -295,6 +349,32 @@ namespace sonic_field
         struct cue_point_parser: text_event_parser<event_cue_point>{};
         struct meta_unknown_parser: text_event_parser<event_meta_unknown>{};
 
+        // Event parsing functor.
+        struct channel_msg_event_parser
+        {
+            virtual event_ptr operator()(std::istream& input, uint8_t channle) const = 0;
+            // Virtual destructor to ensure the dispatch machinery is deleted correctly.
+            virtual ~channel_msg_event_parser(){} 
+        };
+
+        uint8_t read_uint8(std::istream& input);
+        template<typename E>
+        struct channel_msg_event_parser_imp: channel_msg_event_parser
+        {
+            event_ptr operator()(std::istream& input, uint8_t channel) const override
+            {
+                SF_MARK_STACK;
+                std::array<uint8_t, E::size> data{};
+                for(size_t i{0}; i < E::size; ++i)
+                {
+                    data[i] = read_uint8(input);
+                }
+                return event_ptr{new E{0, std::move(data), channel}};
+            }
+        };
+
+        struct note_on_event_parser: channel_msg_event_parser_imp<note_on_event>{};
+
         std::ostream& operator << (std::ostream& out, const chunk_type& ct);
         std::ostream& operator << (std::ostream& out, const chunk& c);
         std::ostream& operator << (std::ostream& out, const header& h);
@@ -312,8 +392,6 @@ namespace sonic_field
         // is performance centric so shared_ptr is fine.
         event_ptr parse_event(std::istream& input);
 
-        // TODO - delete - expose for testing only.
-        uint8_t read_uint8(std::istream& input);
         uint32_t read_vlq(std::istream& input);
 
     }

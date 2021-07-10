@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <thread>
 #include <chrono>
+#include <poll.h>
+#include <arpa/inet.h>
 #include "sonic_field.h"
 
 namespace comms
@@ -18,6 +20,12 @@ namespace comms
     using namespace std::chrono_literals;
 
     class tcp_server;
+
+    static void ent(std::string msg)
+    {
+        SF_THROW(std::runtime_error{
+                msg + ": " + strerror(errno)});
+    };
 
     class net_client
     {
@@ -117,32 +125,21 @@ namespace comms
         // Server socket fd.
         int m_server_fd;
 
-        // All the client field descriptors to send to poll.
-        std::vector<int> m_client_fds;
-
         // Store the clients for accepted sockets.
         // Maps file descriptor to client.
-        std::unordered_map<int, net_client> clients;
+        std::unordered_map<int, net_client> m_clients;
 
         uint32_t parse_ip4(std::string saddr)
         {
+
             SF_MARK_STACK;
-            std::replace(saddr.begin(), saddr.end(), '.', ' ');
-            std::istringstream ins{saddr};
-            uint32_t datum{0};
-            uint32_t data{0};
-            ins >> datum;
-            data |= datum;
-            data <<= 8;
-            ins >> datum;
-            data |= datum;
-            data <<= 8;
-            ins >> datum;
-            data |= datum;
-            data <<= 8;
-            ins >> datum;
-            data |= datum;
-            return htonl(data);
+            uint32_t ret{};
+            if(inet_pton(AF_INET, saddr.c_str(), &ret)<=0) 
+            {
+                SF_MARK_STACK;
+                ent("Could not parse ip address: " + saddr);
+             }
+            return ret;
         }
 
         void run_main_loop()
@@ -152,19 +149,52 @@ namespace comms
             std::cout << "Main loop running" << std::endl;
             while(m_main_loop_running)
             {
+                std::vector<pollfd> pollfds{};
+                pollfds.push_back({m_server_fd, POLLIN, 0});
+                for(const auto& el: m_clients)
+                {
+                    pollfds.push_back({el.first, POLLIN, 0});
+                }
+                if ( 0 >poll(&(pollfds[0]), pollfds.size(), 0))
+                {
+                    SF_MARK_STACK;
+                    ent("Poll failed");
+                }
+                bool is_server{true};
+                for(const auto& an_pfd: pollfds)
+                {
+                    std::cout << 
+                        "Poll result for fd: " << an_pfd.fd << 
+                        " events=" << an_pfd.events <<
+                        " revents=" << an_pfd.revents << std::endl;
+                    if (is_server)
+                    {
+                        is_server = false;
+                        if ( an_pfd.revents & POLLIN)
+                        {
+                            process_accept(an_pfd.fd);
+                        }
+                    }
+                }
                 std::this_thread::sleep_for(500ms);
                 std::cout << "Main thread..." << std::endl;
             }
         }
 
-        static void ent(std::string msg)
+        void process_accept(int fd)
         {
-            SF_THROW(std::runtime_error{
-                    msg + ": " + strerror(errno)});
-        };
+            sockaddr addr{};
+            socklen_t len{sizeof(addr)};
+            if (0 > accept(fd, &addr, &len))
+            {
+                SF_MARK_STACK;
+                ent("Accept failed");
+            }
+            std::cout << "Accepted" << std::endl;
+        }
 
         public:
-        tcp_server(const std::string& addr, uint16_t port):
+        tcp_server(const std::string& addr, uint16_t port, size_t backlog=128):
             m_main_loop_running{false}
         {
             SF_MARK_STACK;
@@ -194,6 +224,11 @@ namespace comms
             {
                 SF_MARK_STACK;
                 ent("Could not set server socket flags none blocking");
+            }
+            if(listen(m_server_fd, backlog))
+            {
+                SF_MARK_STACK;
+                ent("Could not listen on server socket");
             }
         }
 
@@ -246,6 +281,27 @@ namespace comms
         std::cout << "Bound to port: " << server.server_port() << std::endl;
         server.start_main_loop();
         std::cout << "Main loop started" << std::endl;
+        std::this_thread::sleep_for(2000ms);
+
+        struct sockaddr_in serv_addr;
+        int sock_fd;
+        if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        {
+            ent("Create client socket failed");
+        }
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_port = htons(server.server_port() );
+        if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0) 
+        {
+            ent("Set ip address of socket failed");
+        }
+        
+        std::cout << "About to connect!" << std::endl;
+        if (connect(sock_fd, reinterpret_cast<sockaddr *>(&serv_addr), sizeof(serv_addr)) < 0)
+        {
+            ent("Connect failed");
+        }
+
         std::this_thread::sleep_for(2000ms);
         server.stop_main_loop();
         std::cout << "Main loop stopped" << std::endl;

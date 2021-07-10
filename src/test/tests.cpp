@@ -11,8 +11,8 @@ namespace sonic_field
         std::cout << "Running tests with data dir=" << m_data_dir << std::endl;
 
         try_run("Dummy test", [] { std::cout << "Dummy test" << std::endl; });
-        //try_run("Midi test a", [&] { test_midi_a(m_data_dir); });
-        try_run("Comms tests", [&] { test_comms(); });
+        try_run("Midi test a", [&] { test_midi_a(m_data_dir); });
+        //try_run("Comms tests", [&] { test_comms(); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
