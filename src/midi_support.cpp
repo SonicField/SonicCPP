@@ -8,6 +8,12 @@ namespace sonic_field
 {
     namespace midi
     {
+        template<typename T, typename... P>
+        inline void _em(T& t, P&&... p)
+        {
+            t.emplace(std::forward<decltype(p)>(p)...);
+        }
+
         class stream_state_save
         {
             std::ostream& m_stream;
@@ -235,17 +241,23 @@ namespace sonic_field
         event_ptr meta_parser::operator()(std::istream& input) const
         {
             SF_MARK_STACK;
-            static std::unordered_map<meta_code, event_parser*> code_map
+            static auto code_map = []
             {
-                {meta_code::tempo, new tempo_parser{}},
-                {meta_code::key_signature, new key_signature_parser{}},
-                {meta_code::copyright, new copyright_parser{}},
-                {meta_code::track_name, new track_name_parser{}},
-                {meta_code::instrument_name, new instrument_name_parser{}},
-                {meta_code::marker, new marker_parser{}},
-                {meta_code::cue_point, new cue_point_parser{}},
-                {meta_code::time_signature, new time_signature_parser{}},
-            };
+                using k_t = meta_code;
+                using v_t = std::unique_ptr<event_parser>;
+
+                std::unordered_map<k_t, v_t> m{};
+                _em(m, meta_code::tempo, v_t{new tempo_parser{}});
+                _em(m, meta_code::key_signature, v_t{new key_signature_parser{}});
+                _em(m, meta_code::copyright, v_t{new copyright_parser{}});
+                _em(m, meta_code::track_name, v_t{new track_name_parser{}});
+                _em(m, meta_code::instrument_name, v_t{new instrument_name_parser{}});
+                _em(m, meta_code::marker, v_t{new marker_parser{}});
+                _em(m, meta_code::cue_point, v_t{new cue_point_parser{}});
+                _em(m, meta_code::time_signature, v_t{new time_signature_parser{}});
+                return m;
+            }();
+
             auto code = read_uint8(input);
             auto found = code_map.find(meta_code{code});
             // If we have not found a parser then we can 'ignore' the event and create an unknown.
@@ -328,33 +340,27 @@ namespace sonic_field
             // Read the offset as a vlq.
             auto offset = read_vlq(input);
 
-            // Short hand for emplacing something to avoid typing and boiler plate.
-            static auto ep = [](auto& m, auto&&... params)
-            {
-                m.emplace(std::forward<decltype(params)>(params)...);
-            };
-
             // Map a full event code to an event parser. Should the parser not be found in this map
             // then we try the message map.  Note that we could use a switch statement for dispatch
             // here; I did it this way because it appealed to me - a switch is probably a better option
             // but - this code is for fun :)
-            static auto full_map = [ep=ep]
+            static auto full_map = []
             {
                 using k_t = event_code_full;
                 using v_t = std::unique_ptr<event_parser>;
                 std::unordered_map<k_t, v_t > m{};
-                ep(m, k_t::meta_event, v_t{new meta_parser{}});
+                _em(m, k_t::meta_event, v_t{new meta_parser{}});
                 return m;
             }();
 
             // Map channel events using the top 4 bits for the key then we get the channel from the bottom
             // four bits.
-            static auto channel_map = [ep=ep]
+            static auto channel_map = []
             {
                 using k_t = event_code_msg;
                 using v_t = std::unique_ptr<channel_msg_event_parser>;
                 std::unordered_map<k_t, v_t> m{};
-                ep(m, k_t::note_on, v_t{new note_on_event_parser{}});
+                _em(m, k_t::note_on, v_t{new note_on_event_parser{}});
                 return m;
             }();
 
