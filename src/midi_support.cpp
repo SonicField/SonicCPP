@@ -328,7 +328,7 @@ namespace sonic_field
             // Read the offset as a vlq.
             auto offset = read_vlq(input);
 
-            // Short hand for emplacing something to avoid typing and boilerplate.
+            // Short hand for emplacing something to avoid typing and boiler plate.
             static auto ep = [](auto& m, auto&&... params)
             {
                 m.emplace(std::forward<decltype(params)>(params)...);
@@ -340,9 +340,10 @@ namespace sonic_field
             // but - this code is for fun :)
             static auto full_map = [ep=ep]
             {
-                typedef std::unique_ptr<event_parser> v_t;
-                std::unordered_map<event_code_full, v_t > m{};
-                ep(m, event_code_full::meta_event, v_t{new meta_parser{}});
+                using k_t = event_code_full;
+                using v_t = std::unique_ptr<event_parser>;
+                std::unordered_map<k_t, v_t > m{};
+                ep(m, k_t::meta_event, v_t{new meta_parser{}});
                 return m;
             }();
 
@@ -350,9 +351,10 @@ namespace sonic_field
             // four bits.
             static auto channel_map = [ep=ep]
             {
-                typedef std::unique_ptr<channel_msg_event_parser> v_t;
-                std::unordered_map<event_code_msg, v_t> m{};
-                ep(m, event_code_msg::note_on, v_t{new note_on_event_parser{}});
+                using k_t = event_code_msg;
+                using v_t = std::unique_ptr<channel_msg_event_parser>;
+                std::unordered_map<k_t, v_t> m{};
+                ep(m, k_t::note_on, v_t{new note_on_event_parser{}});
                 return m;
             }();
 
