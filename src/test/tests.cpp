@@ -70,8 +70,13 @@ namespace sonic_field
         std::cout << "Fourth event: " << *event4 << std::endl;
         while(true)
         {
-            auto event5 =  midi::parse_event(file);
-            std::cout << "Fith event: " << *event5 << std::endl;
+            auto eventx =  midi::parse_event(file);
+            std::cout << "X event: " << *eventx << std::endl;
+            if (eventx->m_type == midi::event_type::end_of_track)
+            {
+                std::cout << "End of track" << std::endl;
+                break;
+            }
         }
     }
 

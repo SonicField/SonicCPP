@@ -41,10 +41,11 @@ namespace sonic_field
             start,
             cont,
             stop,
-            active_sensing
+            active_sensing,
+            end_of_track
         };
 
-        std::string event_type_to_string(event_type t)
+        inline std::string event_type_to_string(event_type t)
         {
             switch(t)
             {
@@ -161,6 +162,12 @@ namespace sonic_field
                     uint8_t denominator,
                     uint8_t clocks_per_tick,
                     uint8_t thirty_two_in_quater);
+            std::string to_string() const override;
+        };
+
+        struct event_end_of_track: event
+        {
+            using event::event;
             std::string to_string() const override;
         };
 
@@ -334,7 +341,7 @@ namespace sonic_field
         template<typename E>
         struct text_event_parser: event_parser
         {
-            event_ptr operator()(std::istream& input) const
+            event_ptr operator()(std::istream& input) const override
             {
                 SF_MARK_STACK;
                 return event_ptr{new E{0, parse_text_field(input)}};
@@ -348,6 +355,11 @@ namespace sonic_field
         struct marker_parser: text_event_parser<event_marker>{};
         struct cue_point_parser: text_event_parser<event_cue_point>{};
         struct meta_unknown_parser: text_event_parser<event_meta_unknown>{};
+
+        struct end_of_track_parser: event_parser
+        {
+            event_ptr operator()(std::istream& input) const override;
+        };
 
         // Event parsing functor.
         struct channel_msg_event_parser

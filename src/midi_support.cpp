@@ -8,10 +8,23 @@ namespace sonic_field
 {
     namespace midi
     {
-        template<typename T, typename... P>
-        inline void _em(T& t, P&&... p)
+        // Short hand for emplacing in a map as we have a lot of static code which does this
+        // as part of the parser.
+        inline void _em(auto& t, auto&&... p)
         {
             t.emplace(std::forward<decltype(p)>(p)...);
+        }
+
+        inline auto to_hex(auto&& x)
+        {
+            auto ss = std::stringstream{} << "0x";
+            if constexpr (std::is_integral<decltype(x)>::value)
+                ss << std::hex << x;
+            else if constexpr (std::is_same<typename std::remove_reference<decltype(x)>::type, uint8_t>::value)
+                ss << std::hex << int(x);
+            else
+                ss << x;
+            return ss.str();
         }
 
         class stream_state_save
@@ -43,7 +56,7 @@ namespace sonic_field
                     // The type system means this should never happen - but I guess you never know, because
                     // of code rot.
                     SF_THROW(std::invalid_argument{"Unknown chunk type: " +
-                        std::to_string(int(ct))});
+                        to_hex(int(ct))});
             }
             return out;
         }
@@ -82,7 +95,7 @@ namespace sonic_field
             return out;
         }
 
-        inline void safe_read(std::istream& input, char* into, uint64_t len)
+        inline auto safe_read(auto& input, auto into, auto len)
         {
             input.read(into, len);
             if (!input) SF_THROW(std::invalid_argument("End Of File whilst reading midi"));
@@ -106,7 +119,7 @@ namespace sonic_field
         uint16_t read_uint16(std::istream& input)
         {
             SF_MARK_STACK;
-            uint16_t ret{ 0 };
+            uint16_t ret{0};
             char element;
             safe_read(input, &element, 1);
             ret = element << 8;
@@ -118,7 +131,7 @@ namespace sonic_field
         uint8_t read_uint8(std::istream& input)
         {
             SF_MARK_STACK;
-            char ret{ 0 };
+            char ret{0};
             safe_read(input, &ret, 1);
             return uint8_t(ret);
         }
@@ -126,7 +139,7 @@ namespace sonic_field
         uint32_t read_vlq(std::istream& input)
         {
             SF_MARK_STACK;
-            uint32_t ret{ 0 };
+            uint32_t ret{0};
             char element;
             safe_read(input, &element, 1);
             while (element & 0x80)
@@ -171,7 +184,7 @@ namespace sonic_field
                 SF_THROW(std::out_of_range{ "Expected header size to be 6 was: " + std::to_string(ret.m_chunk.m_size) });
             ret.m_format = read_uint16(input);
             if (ret.m_format > 2)
-                SF_THROW(std::invalid_argument{ "Unrecognized format: " + std::to_string(ret.m_format) });
+                SF_THROW(std::invalid_argument{ "Unrecognized format: " + to_hex(ret.m_format) });
             ret.m_ntrks = read_uint16(input);
             if (ret.m_format == 0 && ret.m_ntrks != 1)
                 SF_THROW(std::out_of_range{ "Format 0 expects 1 track, asked for: " + std::to_string(ret.m_ntrks) });
@@ -247,14 +260,15 @@ namespace sonic_field
                 using v_t = std::unique_ptr<event_parser>;
 
                 std::unordered_map<k_t, v_t> m{};
-                _em(m, meta_code::tempo, v_t{new tempo_parser{}});
-                _em(m, meta_code::key_signature, v_t{new key_signature_parser{}});
-                _em(m, meta_code::copyright, v_t{new copyright_parser{}});
-                _em(m, meta_code::track_name, v_t{new track_name_parser{}});
-                _em(m, meta_code::instrument_name, v_t{new instrument_name_parser{}});
-                _em(m, meta_code::marker, v_t{new marker_parser{}});
-                _em(m, meta_code::cue_point, v_t{new cue_point_parser{}});
-                _em(m, meta_code::time_signature, v_t{new time_signature_parser{}});
+                _em(m, k_t::tempo, v_t{new tempo_parser{}});
+                _em(m, k_t::key_signature, v_t{new key_signature_parser{}});
+                _em(m, k_t::copyright, v_t{new copyright_parser{}});
+                _em(m, k_t::track_name, v_t{new track_name_parser{}});
+                _em(m, k_t::instrument_name, v_t{new instrument_name_parser{}});
+                _em(m, k_t::marker, v_t{new marker_parser{}});
+                _em(m, k_t::cue_point, v_t{new cue_point_parser{}});
+                _em(m, k_t::time_signature, v_t{new time_signature_parser{}});
+                _em(m, k_t::end_of_track, v_t{new end_of_track_parser{}});
                 return m;
             }();
 
@@ -279,7 +293,7 @@ namespace sonic_field
             if (check_value != 0x03)
             {
                 SF_THROW(std::invalid_argument{
-                        "set tempo second byte expected 0x03 got: " + std::to_string(check_value)});
+                        "set tempo second byte expected 0x03 got: " + to_hex(check_value)});
             }
             uint32_t ms_per_quater = 0;
             // The next three bytes are the value big endian.
@@ -298,7 +312,7 @@ namespace sonic_field
             if (check_value != 0x02)
             {
                 SF_THROW(std::invalid_argument{"set key signature second byte expected 0x02 got: " +
-                        std::to_string(check_value)});
+                        to_hex(check_value)});
             }
             int8_t sharps_flats = static_cast<int8_t>(read_uint8(input));
             uint8_t major_minor = read_uint8(input);
@@ -312,10 +326,27 @@ namespace sonic_field
             if (check_value != 0x04)
             {
                 SF_THROW(std::invalid_argument{"set time signature second byte expected 0x04 got: " +
-                        std::to_string(check_value)});
+                        to_hex(check_value)});
             }
             return event_ptr{new event_time_signature{0, read_uint8(input), read_uint8(input), read_uint8(input),
                 read_uint8(input)}};
+        }
+
+        event_ptr end_of_track_parser::operator()(std::istream& input) const
+        {
+            SF_MARK_STACK;
+            auto check_value = read_uint8(input);
+            if (check_value != 0x0)
+            {
+                SF_THROW(std::invalid_argument{"end of track expected 0x00 got: " +
+                        to_hex(check_value)});
+            }
+            return event_ptr{new event_end_of_track{0, event_type::end_of_track}};
+        }
+
+        std::string event_end_of_track::to_string() const
+        {
+            return "end_of_track";
         }
 
         std::string parse_text_field(std::istream& input)
@@ -365,16 +396,26 @@ namespace sonic_field
             }();
 
             auto code = read_uint8(input);
-            auto found = full_map.find(event_code_full{code});
-            if (found == full_map.end())
             {
-                SF_THROW(std::logic_error{"Only full event codes implemented; found: " + std::to_string(code)});
+                auto found = full_map.find(event_code_full{code});
+                if (found != full_map.end())
+                {
+                    // Create the event with a zero offset then set the offset on return.
+                    auto ret_event = found->second->operator()(input);
+                    ret_event->m_offset = offset;
+                    return ret_event;
+                }
             }
-  
-            // Create the event with a zero offset then set the offset on return.
-            auto ret_event = found->second->operator()(input);
-            ret_event->m_offset = offset;
-            return ret_event;
+            {
+                auto found = channel_map.find(event_code_msg{uint8_t(code & 0xF0)});
+                if (found == channel_map.end())
+                {
+                    SF_THROW(std::invalid_argument{"Could not parse message event with code: " + to_hex(code)});
+                }
+                auto ret_event = found->second->operator()(input, uint8_t(code & 0x0F));
+                ret_event->m_offset = offset;
+                return ret_event;
+             }
         }
     }
 }
