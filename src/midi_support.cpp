@@ -390,7 +390,12 @@ namespace sonic_field
                 using v_t = std::unique_ptr<channel_msg_event_parser>;
                 std::unordered_map<k_t, v_t> m{};
                 _em(m, k_t::note_on, v_t{new note_on_event_parser{}});
+                _em(m, k_t::note_off, v_t{new note_off_event_parser{}});
+                _em(m, k_t::key_pressure, v_t{new key_pressure_event_parser{}});
                 _em(m, k_t::control, v_t{new control_event_parser{}});
+                _em(m, k_t::program, v_t{new program_event_parser{}});
+                _em(m, k_t::channel_pressure, v_t{new channel_pressure_event_parser{}});
+                _em(m, k_t::pitch, v_t{new pitch_pressure_event_parser{}});
                 return m;
             }();
 
@@ -432,3 +437,4 @@ namespace sonic_field
         }
     }
 }
+ 

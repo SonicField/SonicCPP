@@ -113,6 +113,8 @@ namespace sonic_field
             std::stringstream ss{};
             if constexpr (std::is_integral<decltype(x)>::value)
                 ss << "0x" << std::hex << x;
+            // We tread char and uchar as integer values here as uint8_t and int8_t are uchar and char
+            // respectively.
             else if constexpr (std::is_same<typename std::remove_cvref<decltype(x)>::type, uint8_t>::value)
                 ss << "0x" << std::hex << int(x);
             else
@@ -402,7 +404,11 @@ namespace sonic_field
 
         struct note_on_event_parser: channel_msg_event_parser_imp<note_on_event>{};
         struct note_off_event_parser: channel_msg_event_parser_imp<note_off_event>{};
+        struct key_pressure_event_parser: channel_msg_event_parser_imp<key_pressure_event>{};
         struct control_event_parser: channel_msg_event_parser_imp<control_event>{};
+        struct program_event_parser: channel_msg_event_parser_imp<program_event>{};
+        struct channel_pressure_event_parser: channel_msg_event_parser_imp<channel_pressure_event>{};
+        struct pitch_pressure_event_parser: channel_msg_event_parser_imp<pitch_pressure_event>{};
 
         std::ostream& operator << (std::ostream& out, const chunk_type& ct);
         std::ostream& operator << (std::ostream& out, const chunk& c);
