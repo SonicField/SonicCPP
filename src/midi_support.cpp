@@ -15,18 +15,6 @@ namespace sonic_field
             t.emplace(std::forward<decltype(p)>(p)...);
         }
 
-        inline auto to_hex(auto&& x)
-        {
-            auto ss = std::stringstream{} << "0x";
-            if constexpr (std::is_integral<decltype(x)>::value)
-                ss << std::hex << x;
-            else if constexpr (std::is_same<typename std::remove_reference<decltype(x)>::type, uint8_t>::value)
-                ss << std::hex << int(x);
-            else
-                ss << x;
-            return ss.str();
-        }
-
         class stream_state_save
         {
             std::ostream& m_stream;
@@ -98,7 +86,8 @@ namespace sonic_field
         inline auto safe_read(auto& input, auto into, auto len)
         {
             input.read(into, len);
-            if (!input) SF_THROW(std::invalid_argument("End Of File whilst reading midi"));
+            if (!input)
+                SF_THROW(std::invalid_argument("End Of File whilst reading midi"));
         }
 
         uint32_t read_uint32(std::istream& input) 
@@ -134,6 +123,15 @@ namespace sonic_field
             char ret{0};
             safe_read(input, &ret, 1);
             return uint8_t(ret);
+        }
+
+        uint8_t peek_uint8(std::istream& input)
+        {
+            SF_MARK_STACK;
+            auto ret = input.peek();
+            if (!input)
+                SF_THROW(std::invalid_argument("End Of File whilst reading midi"));
+            return ret;
         }
 
         uint32_t read_vlq(std::istream& input)
@@ -365,7 +363,7 @@ namespace sonic_field
             return text;
         }
 
-        event_ptr parse_event(std::istream& input)
+        std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code)
         {
             SF_MARK_STACK;
             // Read the offset as a vlq.
@@ -392,18 +390,33 @@ namespace sonic_field
                 using v_t = std::unique_ptr<channel_msg_event_parser>;
                 std::unordered_map<k_t, v_t> m{};
                 _em(m, k_t::note_on, v_t{new note_on_event_parser{}});
+                _em(m, k_t::control, v_t{new control_event_parser{}});
                 return m;
             }();
 
-            auto code = read_uint8(input);
+            // It might be more elegant to call unget - but this is much the same just the other
+            // way around.
+            auto code = peek_uint8(input);
+            if (code & 0x80)
+            {
+                read_uint8(input);
+            }
+            else
+            {
+                code = prev_code;
+            }
+            // TODO replace this with peek not read and then if the code returned does not have the
+            // top bit set - it is a continuation and use the previous code. Otherwise, read the code
+            // to clear it off the stream.
             {
                 auto found = full_map.find(event_code_full{code});
                 if (found != full_map.end())
                 {
                     // Create the event with a zero offset then set the offset on return.
+                    // TODO: Fix the definition of event so the offset can be passed to the constructor!
                     auto ret_event = found->second->operator()(input);
                     ret_event->m_offset = offset;
-                    return ret_event;
+                    return {ret_event, code};
                 }
             }
             {
@@ -414,7 +427,7 @@ namespace sonic_field
                 }
                 auto ret_event = found->second->operator()(input, uint8_t(code & 0x0F));
                 ret_event->m_offset = offset;
-                return ret_event;
+                return {ret_event, code};
              }
         }
     }

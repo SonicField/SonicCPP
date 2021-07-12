@@ -53,9 +53,9 @@ namespace sonic_field
                 case event_type::note_off:         return "note_off";
                 case event_type::note_on:          return "note_on";
                 case event_type::key_pressure:     return "key_pressure";
-                case event_type::control:          return "note_off";
+                case event_type::control:          return "control";
                 case event_type::program:          return "program";
-                case event_type::channel_pressure: return "program";
+                case event_type::channel_pressure: return "channel_pressure";
                 case event_type::pitch:            return "pitch";
                 default: SF_THROW(std::invalid_argument{
                                  "Unknown msg type: " +
@@ -105,6 +105,20 @@ namespace sonic_field
             key_signature   = 0x59,
             sequencer_only  = 0x7F
         };
+
+        // If the passed type is something which is makes sense to show as hex this will
+        // otherwise just return the string representation via the default stringstring representation.
+        inline auto to_hex(auto&& x)
+        {
+            std::stringstream ss{};
+            if constexpr (std::is_integral<decltype(x)>::value)
+                ss << "0x" << std::hex << x;
+            else if constexpr (std::is_same<typename std::remove_cvref<decltype(x)>::type, uint8_t>::value)
+                ss << "0x" << std::hex << int(x);
+            else
+                ss << x;
+            return ss.str();
+        }
 
         // No encapsulation, just use raw data fields for simplicity.
         // The higher level interface will then encapsulate music objects
@@ -251,15 +265,16 @@ namespace sonic_field
             virtual std::string to_string() const override
             {
                 std::stringstream ret{};
-                ret << "message" << event_type_to_string(m_type) << ": ";
+                ret << "message_" << event_type_to_string(m_type) << ": ";
                 bool first{true};
                 for(const auto v: m_data)
                 {
+                    static_assert(std::is_same<decltype(v), const uint8_t>::value);
                     if (first)
                         first = false;
                     else
                         ret << "/";
-                    ret << v;
+                    ret  << to_hex(v);
                 }
                 return ret.str();
             }
@@ -386,6 +401,8 @@ namespace sonic_field
         };
 
         struct note_on_event_parser: channel_msg_event_parser_imp<note_on_event>{};
+        struct note_off_event_parser: channel_msg_event_parser_imp<note_off_event>{};
+        struct control_event_parser: channel_msg_event_parser_imp<control_event>{};
 
         std::ostream& operator << (std::ostream& out, const chunk_type& ct);
         std::ostream& operator << (std::ostream& out, const chunk& c);
@@ -402,7 +419,9 @@ namespace sonic_field
         // event is polymorphic and which one you get can be figured out from the
         // m_type member. This is why we pass them by shared_ptr. Nothing in this library
         // is performance centric so shared_ptr is fine.
-        event_ptr parse_event(std::istream& input);
+        // Because message status bytes can be eliged in midi, we pass in the previous code
+        // and return a pair with the current code.
+        std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code=0);
 
         uint32_t read_vlq(std::istream& input);
 
