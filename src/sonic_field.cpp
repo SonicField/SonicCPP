@@ -511,7 +511,7 @@ namespace sonic_field
         return "silence_generator";
     }
 
-    linear_generator::linear_generator(const std::vector<position_and_amplitude>& in):
+    linear_generator::linear_generator(const envelope& in):
         m_points{ in },
         m_position{ 0 },
         m_point{ 0 }

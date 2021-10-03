@@ -430,6 +430,5 @@ namespace sonic_field
         std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code=0);
 
         uint32_t read_vlq(std::istream& input);
-
     }
 }

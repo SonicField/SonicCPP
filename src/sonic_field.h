@@ -221,16 +221,19 @@ namespace sonic_field
     struct position_and_amplitude : public std::tuple<uint64_t, double>
     {
         using std::tuple<uint64_t, double>::tuple;
-        uint64_t position()
+
+        uint64_t position() const
         {
             return std::get<0>(*this);
         }
 
-        double amplitude()
+        double amplitude() const
         {
             return std::get<1>(*this);
         }
     };
+
+    using envelope = std::vector<position_and_amplitude>;
 
     struct scope
     {
@@ -386,18 +389,18 @@ namespace sonic_field
 
     class linear_generator :  public signal_generator_base
     {
-        std::vector<position_and_amplitude> m_points;
+        envelope m_points;
         uint64_t m_position;
         uint64_t m_point;
     public:
         linear_generator() = delete;
-        explicit linear_generator(const std::vector<position_and_amplitude>&);
+        explicit linear_generator(const envelope&);
         virtual double* next() override;
         virtual const char* name() override;
         virtual signal_base* copy() override;
     };
 
-    inline signal generate_linear(std::vector<position_and_amplitude> points)
+    inline signal generate_linear(envelope points)
     {
         SF_MARK_STACK;
         return add_to_scope({ new linear_generator{points} });

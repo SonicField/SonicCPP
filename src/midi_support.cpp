@@ -3,6 +3,7 @@
 #include <ios>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 
 namespace sonic_field
 {
@@ -366,6 +367,7 @@ namespace sonic_field
         std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code)
         {
             SF_MARK_STACK;
+
             // Read the offset as a vlq.
             auto offset = read_vlq(input);
 
@@ -436,5 +438,6 @@ namespace sonic_field
              }
         }
     }
+
 }
  
