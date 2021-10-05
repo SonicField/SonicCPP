@@ -3,9 +3,6 @@
 #include <sstream>
 namespace sonic_field
 {
-    // Test declarations go here.
-    void test_midi_a(const std::string&);
-    void test_comms();
 
     // Test machinery.
     class assertion_error : public std::runtime_error
@@ -14,8 +11,7 @@ namespace sonic_field
         using std::runtime_error::runtime_error;
     };
 
-    template<typename A, typename B, typename C>
-    inline void assertEqual(const A& a, const B& b, const C& msg)
+    inline void assert_equal(const auto& a, const auto& b, const auto& msg)
     {
         if (a != b)
         {
@@ -25,6 +21,46 @@ namespace sonic_field
             SF_THROW(assertion_error{ s.str() });
         }
         std::cerr << "Assertion pass (" << msg << "): " << a << " == " << b << std::endl;
+    }
+
+    inline void assert_true(const auto& a, const auto& msg)
+    {
+        if (!a)
+        {
+            std::stringstream s{};
+            s << "Assertion '" << msg << "' failed: ";
+            s << a << " not true ";
+            SF_THROW(assertion_error{ s.str() });
+        }
+        std::cerr << "Assertion pass (" << msg << "): " << a << " is true" << std::endl;
+    }
+
+    template<typename E>
+    inline void assert_throws(auto to_run, const std::string& to_find, const auto msg)
+    {
+        try
+        {
+            to_run();
+        }
+        catch(E& e)
+        {
+            std::string what = e.what();
+            if (what.find(to_find) == std::string::npos)
+                SF_THROW(assertion_error{"'" + to_find + "' not found in error message got '" + what + "'"});
+            std::cerr << "Assertion pass (" << typeid(E).name() << ": " << msg << ") thrown" << std::endl;
+            return;
+        }
+        catch(std::exception& u)
+        {
+            std::stringstream s{};
+            s << "Assertion '" << msg
+                << "' failed: expected exception '" << typeid(E).name()
+                << "' not thrown but '" << typeid(u).name() << "' was";
+            SF_THROW(assertion_error{ s.str() });
+        }
+        std::stringstream s{};
+        s << "Assertion '" << msg << "' failed: expected exception '" << typeid(E).name() << "' not thrown";
+        SF_THROW(assertion_error{ s.str() });
     }
 
     template<typename T>
@@ -47,6 +83,7 @@ namespace sonic_field
         {
             SF_MARK_STACK;
             std::cerr << "\nRunning: " << name << std::endl;
+            ++m_ran;
             try
             {
                 to_run();
@@ -54,6 +91,7 @@ namespace sonic_field
             }
             catch (std::exception& err)
             {
+                ++m_failed;
                 std::cerr << "FAIL! " << typeid(err).name()  << ": " <<err.what() << std::endl;
             }
         }

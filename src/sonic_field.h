@@ -234,6 +234,8 @@ namespace sonic_field
     };
 
     using envelope = std::vector<position_and_amplitude>;
+    std::ostream& operator << (std::ostream&, const envelope&);
+    std::ostream& operator << (std::ostream&, const position_and_amplitude&);
 
     struct scope
     {

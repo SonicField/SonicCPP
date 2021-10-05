@@ -10,17 +10,17 @@ namespace sonic_field
             // Check the consistency of all the envelopes.
             must_have_envelope(envelope_type::amplitude);
             must_have_envelope(envelope_type::pitch);
-            for(const auto& e: envs)
+            for(const auto& e: m_envelopes)
             {
                 auto sz = e.second.size();
                 if (sz < 2)
                     SF_THROW(
                         std::invalid_argument{
-                            "Envelope has too few elements. Need 2 as a minimum got " + std::to_string(sz)});
+                            "Envelope has too few elements. Needs 2 as a minimum got " + std::to_string(sz)});
             }
             auto start = m_envelopes[envelope_type::amplitude].front().position();
             auto end = m_envelopes[envelope_type::amplitude].back().position();
-            for(const auto& e: envs)
+            for(const auto& e: m_envelopes)
             {
                 if (e.second.front().position() != start)
                     SF_THROW(std::invalid_argument{"Envelope starts not aligned"});

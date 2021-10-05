@@ -11,7 +11,7 @@ namespace sonic_field
             pan
         };
 
-        std::string envelope_type_to_str(envelope_type t)
+        inline std::string envelope_type_to_str(envelope_type t)
         {
             switch(t)
             {
@@ -19,6 +19,8 @@ namespace sonic_field
                     return "amplitude";
                 case envelope_type::pitch:
                     return "pitch";
+                case envelope_type::pan:
+                    return "pan";
                 default:
                     return "unknown: " + std::to_string(uint32_t(t));
             }
@@ -33,7 +35,7 @@ namespace sonic_field
         {
             std::unordered_map<envelope_type, envelope> m_envelopes;
         public:
-            note(std::unordered_map<envelope_type, envelope> envs);
+            explicit note(std::unordered_map<envelope_type, envelope> envs);
 
             uint64_t start() const;
 

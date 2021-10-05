@@ -1074,4 +1074,26 @@ namespace sonic_field
     {
         return new shepard{ m_start_frequency, m_end_frequency, m_cycle_length, m_length };
     };
-} // sonic_field
+
+    std::ostream& operator << (std::ostream& out, const position_and_amplitude& paa)
+    {
+        out << "{" << paa.position() << " ," << paa.amplitude() << "}";
+        return out;
+    }
+
+    std::ostream& operator << (std::ostream& out, const envelope& env)
+    {
+        out << "{";
+        bool first{true};
+        for(const auto& paa: env)
+        {
+            if (!first)
+                out << ", ";
+            else
+                first = false;
+            out << paa;
+        }
+        return out;
+    };
+} // sonic_field:w
+
