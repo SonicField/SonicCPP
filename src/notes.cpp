@@ -57,5 +57,47 @@ namespace sonic_field
                  SF_THROW(std::invalid_argument{"Envelope '" + envelope_type_to_str(t) + "' not present"});
             return found->second;
         }
+
+        std::ifstream midi_file_reader::open_file() const
+        {
+            std::ifstream fstrm{m_file_name, std::ios_base::in | std::ios_base::binary };
+            if (!fstrm)
+                 SF_THROW(std::invalid_argument{"Fille not found: " + m_file_name});
+            return fstrm;
+        }
+
+        void midi_file_reader::read_events()
+        {
+            SF_MARK_STACK;
+            auto fstrm = open_file();
+            struct file_close
+            {
+                decltype(fstrm)& m_f;
+                file_close(decltype(fstrm)& f): m_f{f}{}
+                ~file_close(){ m_f.close(); }
+            };
+            file_close closer{fstrm};
+
+        }
+
+        midi_file_reader::midi_file_reader(std::string file_name): m_file_name{std::move(file_name)}
+        {
+            SF_MARK_STACK;
+            read_events();
+        }
+
+        double temperament::pitch(size_t midi_note) const
+        {
+            const auto cent = std::pow(2.0, (1.0/1200.0));
+            const auto octave = std::floor(static_cast<double>(midi_note)/12.0);
+            const auto note = static_cast<size_t>(std::round(static_cast<double>(midi_note)-octave*12.0));
+
+            auto pitch = m_base*std::pow(2.0, octave);
+            if (m_offset)
+                pitch *= std::pow(cent, ((m_cents[note]+note*100.0)-m_cents[0]));
+            else
+                pitch *= std::pow(cent, m_cents[note]);
+            return pitch;
+        }
     }
 }

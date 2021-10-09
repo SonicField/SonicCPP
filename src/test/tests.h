@@ -35,6 +35,18 @@ namespace sonic_field
         std::cerr << "Assertion pass (" << msg << "): " << a << " is true" << std::endl;
     }
 
+    inline void assert_false(const auto& a, const auto& msg)
+    {
+        if (a)
+        {
+            std::stringstream s{};
+            s << "Assertion '" << msg << "' failed: ";
+            s << a << " not false ";
+            SF_THROW(assertion_error{ s.str() });
+        }
+        std::cerr << "Assertion pass (" << msg << "): " << a << " is false" << std::endl;
+    }
+
     template<typename E>
     inline void assert_throws(auto to_run, const std::string& to_find, const auto msg)
     {
