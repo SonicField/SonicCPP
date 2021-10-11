@@ -1,3 +1,4 @@
+#pragma once
 #include <sstream>
 #include <array>
 #include "sonic_field.h"
@@ -42,26 +43,53 @@ namespace sonic_field
             cont,
             stop,
             active_sensing,
-            end_of_track
+            end_of_track,
+            invalid
         };
 
         inline std::string event_type_to_string(event_type t)
         {
             switch(t)
             {
-                // TODO the rest!
-                case event_type::note_off:         return "note_off";
-                case event_type::note_on:          return "note_on";
-                case event_type::key_pressure:     return "key_pressure";
-                case event_type::control:          return "control";
-                case event_type::program:          return "program";
-                case event_type::channel_pressure: return "channel_pressure";
-                case event_type::pitch:            return "pitch";
+                case event_type::tempo:                 return "tempo";
+                case event_type::key_signature:         return "key_signature";
+                case event_type::copyright:             return "copyright";
+                case event_type::track_name:            return "track_name";
+                case event_type::instrument_name:       return "instrument_name";
+                case event_type::lyric:                 return "lyric";
+                case event_type::marker:                return "marker";
+                case event_type::cue_point:             return "cue_point";
+                case event_type::meta_unknown:          return "meta_unknown";
+                case event_type::note_off:              return "note_off";
+                case event_type::note_on:               return "note_on";
+                case event_type::key_pressure:          return "key_pressure";
+                case event_type::control:               return "control";
+                case event_type::program:               return "program";
+                case event_type::channel_pressure:      return "channel_pressure";
+                case event_type::pitch:                 return "pitch";
+                case event_type::sys_exclusive:         return "sys_exclusive";
+                case event_type::song_position_pointer: return "song_position_pointer";
+                case event_type::song_select:           return "song_select";
+                case event_type::tune_request:          return "tune_requests";
+                case event_type::end_of_exclusive:      return "end_of_exclusive";
+                case event_type::timing_clock:          return "timing_clock";
+                case event_type::start:                 return "start";
+                case event_type::cont:                  return "cont";
+                case event_type::stop:                  return "stop";
+                case event_type::active_sensing:        return "active_sensing";
+                case event_type::end_of_track:          return "end_of_track";
+                case event_type::invalid:               return "invalid";
                 default: SF_THROW(std::invalid_argument{
                                  "Unknown msg type: " +
                                  std::to_string(static_cast<std::underlying_type_t<event_type>>(t))});
             }
         }
+
+        inline std::string event_type_to_string(uint8_t t)
+        {
+            return event_type_to_string(static_cast<event_type>(t));
+        }
+
 
         enum struct event_code_full : uint8_t
         {
@@ -140,9 +168,11 @@ namespace sonic_field
             uint16_t m_division;
         };
 
+        using event_code = uint8_t;
         struct event
         {
             uint32_t m_offset;
+            event_code m_code;
             event_type m_type;
             event(uint32_t offset, event_type ty): m_offset{offset}, m_type{ty}{}
             virtual std::string to_string() const = 0;
@@ -425,9 +455,7 @@ namespace sonic_field
         // event is polymorphic and which one you get can be figured out from the
         // m_type member. This is why we pass them by shared_ptr. Nothing in this library
         // is performance centric so shared_ptr is fine.
-        // Because message status bytes can be eliged in midi, we pass in the previous code
-        // and return a pair with the current code.
-        std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code=0);
+        event_ptr parse_event(std::istream& input, event_code prev_code=0);
 
         uint32_t read_vlq(std::istream& input);
     }

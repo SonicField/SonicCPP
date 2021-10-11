@@ -99,5 +99,30 @@ namespace sonic_field
                 pitch *= std::pow(cent, m_cents[note]);
             return pitch;
         }
+
+        // So there is a righ way to do this (iterate over both and merge in one step taking advantage of the fact
+        // the are both sorted initially) and the easy 'merge and sort'.  I went for the easy.
+        midi_track_events merge_midi_tracks(std::vector<midi_track_events> trackes)
+        {
+            midi_track_events merged{};
+            for(const auto& t: trackes)
+            {
+                merged.insert(merged.end(), t.begin(), t.end());
+            }
+            std::sort(merged.begin(), merged.end(), [](const auto& a, const auto& b)
+            {
+                // Note on events should happen after other events for the effect of the other event to occur on the note
+                // event. I am not sure in this is explicit in the midi standard but it sort of makes implicit sense to me
+                // and in the case that there is a tempo track which always comes first in the file - it makes strong sense.
+                if (a->m_offset == b->m_offset)
+                {
+                    return a->m_type == midi::event_type::note_on;
+                };
+                return a->m_offset < b->m_offset;
+            });
+            return merged;
+        }
+
+
     }
 }

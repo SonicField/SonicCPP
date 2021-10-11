@@ -1,3 +1,4 @@
+#pragma once
 #include "sonic_field.h"
 #include "midi_support.h"
 
@@ -52,7 +53,7 @@ namespace sonic_field
 
         using voice = std::vector<note>;
         using composition = std::vector<voice>;
-        using midi_track_events = std::vector<std::pair<midi::event_ptr, uint8_t>>;
+        using midi_track_events = std::vector<midi::event_ptr>;
         using midi_tracks_events = std::vector<midi_track_events>;
 
         class midi_file_reader
@@ -165,26 +166,37 @@ namespace sonic_field
         //    pitch*=ratio
         //    return pitch
 
+        // Merge multiple tracks of events into a single one.
+        midi_track_events merge_midi_tracks(std::vector<midi_track_events> trackes);
+
+        // Get the ms per time delta for a midi track.
+        uint64_t compute_midi_delta(midi_track_events, uint64_t total_time_ms);
+
         // Generate a vector of notes from a set of track events.
         class track_notes: public std::vector<note>
         {
-        public:
-            // Takes events and a tempo track and a retime which is a fixed multiplier of the track's
-            // midi defined time base.
-            // Use this constructor if there is a tempo track.
-            explicit track_notes(
-                    const midi_track_events& events,
-                    const midi_track_events& tempo,
-                    double retime,
-                    const temperament& tempr);
 
-            // Takes events and a retime which is a fixed multiplier of the track's
-            // midi defined time base.
+        public:
+            // Takes events including tempo events and a total_time which is how long the track should be.
+            // total time is used to work around the complex midi time system which should be implemented
+            // but just is not worth it.
             // Use this constructor if tempo events are in the track.
             explicit track_notes(
-                    const midi_track_events& events,
-                    double retime,
-                    const temperament& tempr);
+                midi_track_events events,
+                uint64_t total_time_ms,
+                temperament tempr);
+
+            // Takes events and a tempo track and a total_time which is how long the track should be.
+            // total time is used to work around the complex midi time system which should be implemented
+            // but just is not worth it.
+            // Use this constructor if there is a tempo track.
+            explicit track_notes(
+                midi_track_events events,
+                midi_track_events tempo,
+                uint64_t total_time_ms,
+                temperament tempr):
+                track_notes{merge_midi_tracks({events, tempo}), total_time_ms, tempr}
+            {}
         };
 
     }

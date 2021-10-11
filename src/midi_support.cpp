@@ -364,7 +364,7 @@ namespace sonic_field
             return text;
         }
 
-        std::pair<event_ptr, uint8_t> parse_event(std::istream& input, uint8_t prev_code)
+        event_ptr parse_event(std::istream& input, event_code prev_code)
         {
             SF_MARK_STACK;
 
@@ -423,7 +423,8 @@ namespace sonic_field
                     // TODO: Fix the definition of event so the offset can be passed to the constructor!
                     auto ret_event = found->second->operator()(input);
                     ret_event->m_offset = offset;
-                    return {ret_event, code};
+                    ret_event->m_code = code;
+                    return ret_event;
                 }
             }
             {
@@ -434,7 +435,8 @@ namespace sonic_field
                 }
                 auto ret_event = found->second->operator()(input, uint8_t(code & 0x0F));
                 ret_event->m_offset = offset;
-                return {ret_event, code};
+                ret_event->m_code = code;
+                return ret_event;
              }
         }
     }

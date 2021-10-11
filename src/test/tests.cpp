@@ -62,26 +62,26 @@ namespace sonic_field
         assert_equal(type_of_chunk(tc), midi::chunk_type::track, "track chunk type");
         std::cout << "Track: " << tc << std::endl;
 
-        auto event1 =  midi::parse_event(file).first;
+        auto event1 =  midi::parse_event(file);
         test_header("Correct track events");
         std::cout << "First event: " << *event1 << std::endl;
         assert_equal(int(event1->m_type), int(midi::event_type::tempo), "First track event is set tempo");
         assert_equal(dynamic_cast<midi::event_tempo*>(event1.get())->m_ms_per_quater, 500000, "Expected tempo");
 
-        auto event2 =  midi::parse_event(file).first;
+        auto event2 =  midi::parse_event(file);
         std::cout << "Second event: " << *event2 << std::endl;
         assert_equal(int(event2->m_type), int(midi::event_type::key_signature),
                 "Second track event is set key signature");
         assert_equal(dynamic_cast<midi::event_key_signature*>(event2.get())->m_flats_sharps, 0, "Expected flats/sharps");
         assert_equal(dynamic_cast<midi::event_key_signature*>(event2.get())->m_major_minor,  0, "Expected major/minor");
 
-        auto event3 =  midi::parse_event(file).first;
+        auto event3 =  midi::parse_event(file);
         std::cout << "Third event: " << *event3 << std::endl;
-        auto event4 =  midi::parse_event(file).first;
+        auto event4 =  midi::parse_event(file);
         std::cout << "Fourth event: " << *event4 << std::endl;
         while(true)
         {
-            auto eventx =  midi::parse_event(file).first;
+            auto eventx =  midi::parse_event(file);
             std::cout << "X event: " << *eventx << std::endl;
             if (eventx->m_type == midi::event_type::end_of_track)
             {
@@ -94,13 +94,13 @@ namespace sonic_field
         tc = midi::read_chunk(file);
         assert_equal(type_of_chunk(tc), midi::chunk_type::track, "track chunk type");
         std::cout << "Track: " << tc << std::endl;
-        uint8_t prev_event{0};
+        midi::event_code prev_code{0};
         while(true)
         {
-            auto eventx =  midi::parse_event(file, prev_event);
-            prev_event=eventx.second;
-            std::cout << "X event: " << *(eventx.first) << std::endl;
-            if (eventx.first->m_type == midi::event_type::end_of_track)
+            auto eventx =  midi::parse_event(file, prev_code);
+            prev_code=eventx->m_code;
+            std::cout << "X event: " << *(eventx) << std::endl;
+            if (eventx->m_type == midi::event_type::end_of_track)
             {
                 std::cout << "End of track" << std::endl;
                 break;
