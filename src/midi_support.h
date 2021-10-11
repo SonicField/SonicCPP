@@ -183,7 +183,7 @@ namespace sonic_field
             virtual ~event(){}
         };
 
-        typedef std::shared_ptr<event> event_ptr;
+        using event_ptr = std::shared_ptr<event>;
 
         struct event_tempo: event
         {

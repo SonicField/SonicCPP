@@ -111,12 +111,14 @@ namespace sonic_field
             }
             std::sort(merged.begin(), merged.end(), [](const auto& a, const auto& b)
             {
-                // Note on events should happen after other events for the effect of the other event to occur on the note
-                // event. I am not sure in this is explicit in the midi standard but it sort of makes implicit sense to me
+                // Note on events should happen after other events for the effect of the other event to impact the note.
+                // I am not sure in this is explicit in the midi standard but it sort of makes implicit sense to me
                 // and in the case that there is a tempo track which always comes first in the file - it makes strong sense.
                 if (a->m_offset == b->m_offset)
                 {
-                    return a->m_type == midi::event_type::note_on;
+                    // Therefore if b is note_on, a is 'less than' (i.e. comes before) b.
+                    // If they are both note_on, who cares?
+                    return b->m_type == midi::event_type::note_on;
                 };
                 return a->m_offset < b->m_offset;
             });

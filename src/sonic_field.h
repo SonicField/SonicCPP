@@ -51,7 +51,6 @@ namespace sonic_field
     class signal_impl
     {
     public:
-        typedef C* R;
         std::vector<C> m_inputs;
         signal_impl() : m_inputs{}{}
 
@@ -125,8 +124,8 @@ namespace sonic_field
 
     class signal
     {
-        typedef signal_impl<signal> wrapped_type;
-        typedef wrapped_type* value_type;
+        using wrapped_type = signal_impl<signal>;
+        using value_type   = wrapped_type*;
 
         value_type m_signal;
 
@@ -196,7 +195,7 @@ namespace sonic_field
         ~signal(){}
     };
 
-    typedef signal_impl<signal> signal_base;
+    using signal_base = signal_impl<signal>;
 
     class signal_mono_base: public signal_base
     {
@@ -712,7 +711,7 @@ namespace sonic_field
 
     namespace sonic_field
     {
-    typedef mverb::MVerb<double> mreverb;
+    using mreverb = mverb::MVerb<double>;
 
     std::unique_ptr<mreverb> create_mreverb(
         double damping_freq,
@@ -968,7 +967,7 @@ namespace sonic_field
     class situator : public signal_mono_base
     {
     public:
-        typedef std::vector<std::pair<uint64_t, double>> situator_input_t;
+        using situator_input_t = std::vector<std::pair<uint64_t, double>>;
 
     private:
         situator_input_t m_taps;
