@@ -171,9 +171,13 @@ namespace sonic_field
         using event_code = uint8_t;
         struct event
         {
+            // Time offset in midi ticks.
             uint32_t m_offset;
+            // Midi 8 bit code which is used to figuring out continuation events in parsing.
             event_code m_code;
+            // Internal type of the event
             event_type m_type;
+
             event(uint32_t offset, event_type ty): m_offset{offset}, m_type{ty}{}
             virtual std::string to_string() const = 0;
             virtual ~event(){}
