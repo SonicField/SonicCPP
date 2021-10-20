@@ -10,7 +10,16 @@ namespace sonic_field
         {
             amplitude,
             pitch,
-            pan
+            pan,
+            pressure,
+            modulation,
+            other_registered,
+            reverb_effect_1,
+            tremolo_effect_2,
+            chorus_effect_3,
+            detune_effect_4,
+            phaser_effect_5,
+            sustain
         };
 
         inline std::string envelope_type_to_str(envelope_type t)
@@ -23,8 +32,26 @@ namespace sonic_field
                     return "pitch";
                 case envelope_type::pan:
                     return "pan";
+                case envelope_type::pressure:
+                    return "pressure";
+                case envelope_type::modulation:
+                    return "modulation";
+                case envelope_type::other_registered:
+                    return "other_registered";
+                case envelope_type::reverb_effect_1:
+                    return "reverb_effect_1";
+                case envelope_type::tremolo_effect_2:
+                    return "tremolo_effect_2";
+                case envelope_type::chorus_effect_3:
+                    return "chorus_effect_3";
+                case envelope_type::detune_effect_4:
+                    return "detune_effect_4";
+                case envelope_type::phaser_effect_5:
+                    return "phaser_effect_5";
+                case envelope_type::sustain:
+                    return "sustain";
                 default:
-                    return "unknown: " + std::to_string(uint32_t(t));
+                    return "unknown: " + std::to_string(static_cast<std::underlying_type_t<envelope_type>>(t));
             }
         }
 
@@ -59,7 +86,7 @@ namespace sonic_field
         class midi_file_reader
         {
             const std::string m_file_name;
-            const midi_tracks_events m_events;
+            midi_tracks_events m_events;
             void read_events();
             std::ifstream open_file() const;
 

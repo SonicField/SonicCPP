@@ -78,12 +78,43 @@ namespace sonic_field
             };
             file_close closer{fstrm};
 
+            // Simply read the entire file into tracks of events.
+            // First read the midi header.
+            auto header = midi::read_header(fstrm);
+            if (header.m_format != 1)
+                SF_THROW(std::invalid_argument{"For now only format 1 supported. Got: " +
+                    std::to_string(header.m_format)});
+            for (int i{0}; i<header.m_ntrks; ++i)
+            {
+                m_events.push_back({});
+                auto tc = midi::read_chunk(fstrm);
+                if (type_of_chunk(tc) != midi::chunk_type::track)
+                    SF_THROW(std::invalid_argument{"Expected tack chunk but did not get that."});
+
+                midi::event_code prev_code{0};
+                while(true)
+                {
+                    auto eventx = midi::parse_event(fstrm, prev_code);
+                    std::cerr << "Midi track event: " << *(eventx) << std::endl;
+                    prev_code = eventx->m_code;
+                    if (eventx->m_type == midi::event_type::end_of_track)
+                    {
+                        break;
+                    }
+                    m_events.back().emplace_back(std::move(eventx));
+                }
+            }
         }
 
         midi_file_reader::midi_file_reader(std::string file_name): m_file_name{std::move(file_name)}
         {
             SF_MARK_STACK;
             read_events();
+        }
+
+        midi_track_events midi_file_reader::track(size_t n) const
+        {
+            return m_events.at(n);
         }
 
         double temperament::pitch(size_t midi_note) const
@@ -125,6 +156,33 @@ namespace sonic_field
             return merged;
         }
 
+        track_notes::track_notes(midi_track_events events, uint64_t total_time_ms, temperament tempr)
+        {
+            /*
+            using env_pack = std::unordered_map<envelope_type, envelope>;
+            std::unordered_map<uint8_t, env_pack> current_notes{};
+            constexpr uint16_t m14b = 0x2000; // Mid point of 14 bit int which is the default to 2 way midi controllers.
+            uint16_t pan{m14b};
+            uint16_t channel_volume{m14b};
+            uint16_t pitch{m14b};
+            uint16_t mod_wheel{};
+            uint16_t expression{};
+            uint16_t registered_param{}; // Not sure where this gets used but is in the standard.
+            bool damper_pedal{true};
+            uint8_t channel_pressure{};
+            uint8_t key_pressure{};
+            uint8_t reverb{};    // Effect depth 1
+            uint8_t tremolo{};   // Effect depth 2
+            uint8_t chorus{};    // Effect depth 3
+            uint8_t detune{};    // Effect depth 4
+            uint8_t phaser{};    // Effect depth 5
 
+            // Init to zero using emty initializer.
+            std::array<uint8_t, 127> polyphonic_key_pressure{};
+
+            // Massive ugly switch on event_type is a bit yuck but good enough for this.
+            */
+
+        }
     }
 }

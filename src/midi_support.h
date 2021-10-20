@@ -9,13 +9,13 @@ namespace sonic_field
     {
         constexpr const char* TYPE_MThd = "MThd";
         constexpr const char* TYPE_MTrk = "MTrk";
-        enum struct chunk_type : uint32_t
+        enum struct chunk_type
         {
             header,
             track
         };
 
-        enum struct event_type : uint32_t
+        enum struct event_type
         {
             tempo,
             key_signature,

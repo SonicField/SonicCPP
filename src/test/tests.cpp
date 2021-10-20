@@ -7,11 +7,12 @@ namespace sonic_field
 {
     // Test declarations go here.
     void test_tests();
-    void test_midi_a(const std::string&);
+    void test_midi_smoke(const std::string&);
     void test_comms();
     namespace notes
     {
         void test_notes();
+        void test_midi_note(const std::string&);
     }
 
     test_runner::test_runner(const std::string& data_dir) :
@@ -22,9 +23,10 @@ namespace sonic_field
 
         //try_run("Dummy test", [] { std::cout << "Dummy test" << std::endl; });
         //try_run("Test tests", [&] { test_tests(); });
-        try_run("Midi test a", [&] { test_midi_a(m_data_dir); });
         //try_run("Comms tests", [&] { test_comms(); });
+        try_run("Midi smoke tests", [&] { test_midi_smoke(m_data_dir); });
         //try_run("Notes tests", [&] { notes::test_notes(); });
+        try_run("Midi note tests", [&] { notes::test_midi_note(m_data_dir); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
@@ -39,10 +41,13 @@ namespace sonic_field
 
     // Test definitions go here:
     // =========================
-    void test_midi_a(const std::string& data_dir)
+
+    // Basic midi parser works.
+    // More test coverage comes from higher up the stack.
+    void test_midi_smoke(const std::string& data_dir)
     {
         SF_MARK_STACK;
-        auto inp = join_path({ data_dir , "test_a.mid" });
+        auto inp = join_path({ data_dir , "Test-Midi-Smoke.mid" });
         std::ifstream file{ inp, std::ios_base::in | std::ios_base::binary };
         test_header("Correct header chunk");
         auto h = midi::read_header(file);
@@ -208,5 +213,14 @@ namespace sonic_field
                 }};},
                 "Needs 2 as",
                 "Envelope length check");
+    }
+
+    void notes::test_midi_note(const std::string& data_dir)
+    {
+        SF_MARK_STACK;
+        auto inp = join_path({ data_dir , "Test-Track-Reader-1.mid" });
+        midi_file_reader reader{inp}; 
+        auto track0 = reader.track(0);
+        assert_equal(track0.size(), 4, "Track zero correct size");
     }
 }
