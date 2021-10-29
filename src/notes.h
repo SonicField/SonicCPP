@@ -8,48 +8,80 @@ namespace sonic_field
     {
         enum struct envelope_type : uint32_t
         {
-            amplitude,
-            pitch,
-            pan,
-            pressure,
             modulation,
+            breath,
+            foot,
+            portamento_time,
+            amplitude,
+            balance,
+            pan,
+            expression,
+            general_purpose_1,
+            general_purpose_2,
+            general_purpose_3,
+            general_purpose_4,
+            pitch,
+            pressure,
             other_registered,
-            reverb_effect_1,
-            tremolo_effect_2,
-            chorus_effect_3,
-            detune_effect_4,
-            phaser_effect_5,
-            sustain
+            effect_reverb,
+            effect_tremolo,
+            effect_chorus,
+            effect_detune,
+            effect_phaser,
+            sound_variation,
+            sound_timbre,
+            sound_release,
+            sound_attack,
+            sound_brightness,
+            sound_decay,
+            sound_vibrato_rate,
+            sound_vibrato_depth,
+            sound_vibrato_delay,
+            damper,
+            sustain,
+            portamento,
+            soft,
+            legato
         };
 
         inline std::string envelope_type_to_str(envelope_type t)
         {
             switch(t)
             {
-                case envelope_type::amplitude:
-                    return "amplitude";
-                case envelope_type::pitch:
-                    return "pitch";
-                case envelope_type::pan:
-                    return "pan";
-                case envelope_type::pressure:
-                    return "pressure";
-                case envelope_type::modulation:
-                    return "modulation";
-                case envelope_type::other_registered:
-                    return "other_registered";
-                case envelope_type::reverb_effect_1:
-                    return "reverb_effect_1";
-                case envelope_type::tremolo_effect_2:
-                    return "tremolo_effect_2";
-                case envelope_type::chorus_effect_3:
-                    return "chorus_effect_3";
-                case envelope_type::detune_effect_4:
-                    return "detune_effect_4";
-                case envelope_type::phaser_effect_5:
-                    return "phaser_effect_5";
-                case envelope_type::sustain:
-                    return "sustain";
+                case envelope_type::modulation: return "modulation";
+                case envelope_type::breath: return "breath";
+                case envelope_type::foot: return "foot";
+                case envelope_type::portamento_time: return "portamento_time";
+                case envelope_type::amplitude: return "amplitude";
+                case envelope_type::balance: return "balance";
+                case envelope_type::pan: return "pan";
+                case envelope_type::expression: return "expression";
+                case envelope_type::general_purpose_1: return "general_purpose_1";
+                case envelope_type::general_purpose_2: return "general_purpose_2";
+                case envelope_type::general_purpose_3: return "general_purpose_3";
+                case envelope_type::general_purpose_4: return "general_purpose_4";
+                case envelope_type::pitch: return "pitch";
+                case envelope_type::pressure: return "pressure";
+                case envelope_type::other_registered: return "other_registered";
+                case envelope_type::effect_reverb: return "effect_reverb";
+                case envelope_type::effect_tremolo: return "effect_tremolo";
+                case envelope_type::effect_chorus: return "effect_chorus";
+                case envelope_type::effect_detune: return "effect_detune";
+                case envelope_type::effect_phaser: return "effect_phaser";
+                case envelope_type::sound_variation: return "sound_variation";
+                case envelope_type::sound_timbre: return "sound_timbre";
+                case envelope_type::sound_release: return "sound_release";
+                case envelope_type::sound_attack: return "sound_attack";
+                case envelope_type::sound_brightness: return "sound_brightness";
+                case envelope_type::sound_decay: return "sound_decay";
+                case envelope_type::sound_vibrato_rate: return "sound_vibrato_rate";
+                case envelope_type::sound_vibrato_depth: return "sound_vibrato_depth";
+                case envelope_type::sound_vibrato_delay: return "sound_vibrato_delay";
+                case envelope_type::damper: return "damper";
+                case envelope_type::sustain: return "sustain";
+                case envelope_type::portamento: return "portamento";
+                case envelope_type::soft: return "soft";
+                case envelope_type::legato: return "legato";
                 default:
                     return "unknown: " + std::to_string(static_cast<std::underlying_type_t<envelope_type>>(t));
             }
@@ -62,6 +94,7 @@ namespace sonic_field
         // See envelope_type.
         class note
         {
+            uint32_t m_channel;
             std::unordered_map<envelope_type, envelope> m_envelopes;
         public:
             explicit note(std::unordered_map<envelope_type, envelope> envs);
@@ -75,7 +108,11 @@ namespace sonic_field
             void must_have_envelope(envelope_type t) const;
 
             envelope get_envelope(envelope_type t) const;
-
+            
+            uint32_t channel() const
+            {
+                return m_channel;
+            }
         };
 
         using voice = std::vector<note>;
@@ -83,6 +120,20 @@ namespace sonic_field
         using midi_track_events = std::vector<midi::event_ptr>;
         using midi_tracks_events = std::vector<midi_track_events>;
 
+        // Reads a file into a midi_tracks_events object.
+        // Note that the resulting m_offset members of the events are
+        // absolute not relative to the previous event in the track as they
+        // are in the actual midi file.  This is done so the events are stand-alone
+        // and can be merged together into different track_events containers whilst
+        // retaining their timing information.
+        //
+        // Support:
+        // Format 0 -> yes
+        // Format 1 -> yes
+        // Format 2 -> not sure!!!
+        //
+        // For format 1 it is necessary to always have track 0 to merge with any
+        // other track to be able to generate notes from tempo.
         class midi_file_reader
         {
             const std::string m_file_name;
@@ -94,6 +145,7 @@ namespace sonic_field
             explicit midi_file_reader(std::string file_name);
             std::vector<size_t> tracks_with_notes() const;
             midi_track_events track(size_t) const;
+            size_t track_count() const;
             void dump_track() const;
 
         };
@@ -202,6 +254,7 @@ namespace sonic_field
         // Generate a vector of notes from a set of track events.
         class track_notes: public std::vector<note>
         {
+            track_notes() = default;
 
         public:
             // Takes events including tempo events and a total_time which is how long the track should be.
@@ -224,6 +277,16 @@ namespace sonic_field
                 temperament tempr):
                 track_notes{merge_midi_tracks({events, tempo}), total_time_ms, tempr}
             {}
+
+            track_notes for_channel(auto channel)
+            {
+                track_notes ret{};
+                std::copy_if(begin(), end(), std::back_inserter(ret), [channel](const auto& n)
+                    {
+                        return n.channel() == channel;
+                    });
+                return ret;
+            }
         };
 
     }

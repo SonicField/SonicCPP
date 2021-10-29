@@ -212,12 +212,12 @@ namespace sonic_field
 
         event_tempo::event_tempo(uint32_t offset, uint32_t ms_per_quater):
             event{offset, event_type::tempo},
-            m_ms_per_quater{ms_per_quater}
+            m_us_per_quater{ms_per_quater}
         {}
 
         std::string event_tempo::to_string() const
         {
-            return "tempo=" + std::to_string(m_ms_per_quater);
+            return "tempo=" + std::to_string(m_us_per_quater);
         }
 
         event_key_signature::event_key_signature(uint32_t offset, int8_t flats_sharps, uint8_t major_minor):

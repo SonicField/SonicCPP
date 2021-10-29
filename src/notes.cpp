@@ -1,4 +1,6 @@
 #include "notes.h"
+#import <map>
+
 namespace sonic_field
 {
     namespace notes
@@ -92,18 +94,27 @@ namespace sonic_field
                     SF_THROW(std::invalid_argument{"Expected tack chunk but did not get that."});
 
                 midi::event_code prev_code{0};
+                // Note we convert to absolute offset.
+                uint64_t offset{0};
                 while(true)
                 {
                     auto eventx = midi::parse_event(fstrm, prev_code);
+                    offset += eventx->m_offset;
+                    eventx->m_offset = offset;
                     std::cerr << "Midi track event: " << *(eventx) << std::endl;
                     prev_code = eventx->m_code;
+                    m_events.back().push_back(eventx);
                     if (eventx->m_type == midi::event_type::end_of_track)
                     {
                         break;
                     }
-                    m_events.back().emplace_back(std::move(eventx));
                 }
             }
+        }
+
+        size_t midi_file_reader::track_count() const
+        {
+            return m_events.size();
         }
 
         midi_file_reader::midi_file_reader(std::string file_name): m_file_name{std::move(file_name)}
@@ -153,35 +164,103 @@ namespace sonic_field
                 };
                 return a->m_offset < b->m_offset;
             });
-            return merged;
+            // Strip duplicate end of track events.
+            // The last even has to be end_of_track because if the way the reader works.
+            auto last_event = merged.back();
+            midi_track_events ret{};
+            std::copy_if(merged.begin(), merged.end(), std::back_inserter(ret), [](const auto& e)
+            {
+                return e->m_type != midi::event_type::end_of_track;
+            });
+            ret.push_back(last_event);
+            return ret;
+        }
+
+        // Utitlies to make dynamic casting to event subtypes easier.
+        template<typename T>
+        const T* to_event(const midi::event_ptr& e)
+        {
+            return dynamic_cast<const T*>(e.get());
+        } 
+        // Pointer to materialized function - not ideal but looks elegant.
+        auto to_event_tempo = to_event<midi::event_tempo>;
+
+        // This is factored out just to make track_notes::track_notes more human readable.
+        inline auto compute_times(const auto& events, auto total_time_ms)
+        {
+            // Compute the temp scaling factor.
+            // Tempo scale current_tempo/initial_tempo which is updated for each tempo event.
+            // Then the different between the previous event and the current event is scaled
+            // by tempo scale and written into a vector of offsets.
+            // Then the whole vector is rescaled so the last element is total_time_ms.
+            // This vector is then the timing use for all note and envelope points.
+            std::vector<double> scaled_times{};
+
+            // This could all be done in one elegant pass - but what is the point in making the
+            // process harder to understand when midi is a trivial part of the overhead of synthesis?
+            // Grab the initial tempo.
+            double initial_tempo{};
+            for(const auto& e: events)
+            {
+                if (e->m_type == midi::event_type::tempo)
+                {
+                    // Found the first tempo - is it at zero?
+                    if (e->m_offset != 0)
+                        SF_THROW(std::invalid_argument{"First tempo event not at zero"});
+                    initial_tempo = to_event_tempo(e)->m_us_per_quater;
+                    break;
+                }
+            }
+            if (initial_tempo == 0)
+                SF_THROW(std::invalid_argument{"Either no tempo was found or it was zero."});
+
+            uint64_t previous_offset{0};
+            double current_tempo{1};
+            // Compute scaled time vector...
+            for(const auto& e: events)
+            {
+                auto offset = previous_offset + current_tempo * (e->m_offset - previous_offset);
+                scaled_times.push_back(offset);
+                if (e->m_type == midi::event_type::tempo)
+                {
+                    current_tempo =  initial_tempo/to_event_tempo(e)->m_us_per_quater;
+                }
+                previous_offset = offset;
+            }
+
+            // We know there must have been at least one event or the initial_tempo would not have been
+            // set and so this code will have already thrown.
+            auto scale_factor = total_time_ms / scaled_times.back();
+            for(auto& t: scaled_times)
+            {
+                t *= scale_factor;
+            }
+            // scaled_times is now the event times in milliseconds.
+            return scaled_times;
         }
 
         track_notes::track_notes(midi_track_events events, uint64_t total_time_ms, temperament tempr)
         {
-            /*
             using env_pack = std::unordered_map<envelope_type, envelope>;
-            std::unordered_map<uint8_t, env_pack> current_notes{};
-            constexpr uint16_t m14b = 0x2000; // Mid point of 14 bit int which is the default to 2 way midi controllers.
-            uint16_t pan{m14b};
-            uint16_t channel_volume{m14b};
-            uint16_t pitch{m14b};
-            uint16_t mod_wheel{};
-            uint16_t expression{};
-            uint16_t registered_param{}; // Not sure where this gets used but is in the standard.
-            bool damper_pedal{true};
-            uint8_t channel_pressure{};
-            uint8_t key_pressure{};
-            uint8_t reverb{};    // Effect depth 1
-            uint8_t tremolo{};   // Effect depth 2
-            uint8_t chorus{};    // Effect depth 3
-            uint8_t detune{};    // Effect depth 4
-            uint8_t phaser{};    // Effect depth 5
+            using channel = uint32_t;
+            using note_id = uint32_t;
 
-            // Init to zero using emty initializer.
-            std::array<uint8_t, 127> polyphonic_key_pressure{};
+            // Use ordered maps to avoid worrying about hashing on pairs. The perf difference is not worth
+            // worrying about here.
+
+            // Notes active on a channel.
+            std::map<std::pair<channel, note_id>, env_pack> current_notes{};
+
+            // Key pressure values if any have been set.
+            std::map<std::pair<channel, note_id>, double> polyphonic_key_pressure{};
+
+            // Controller values if they have been set.
+            std::map<std::pair<channel, envelope_type>, double> active_contollers{};
+
+            // Get the tempo corrected times in ms.
+            auto times = compute_times(events, total_time_ms);
 
             // Massive ugly switch on event_type is a bit yuck but good enough for this.
-            */
 
         }
     }

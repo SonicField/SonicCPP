@@ -13,6 +13,7 @@ namespace sonic_field
     {
         void test_notes();
         void test_midi_note(const std::string&);
+        void test_dump_midi(const std::string&);
     }
 
     test_runner::test_runner(const std::string& data_dir) :
@@ -24,9 +25,10 @@ namespace sonic_field
         //try_run("Dummy test", [] { std::cout << "Dummy test" << std::endl; });
         //try_run("Test tests", [&] { test_tests(); });
         //try_run("Comms tests", [&] { test_comms(); });
-        try_run("Midi smoke tests", [&] { test_midi_smoke(m_data_dir); });
+        //try_run("Midi smoke tests", [&] { test_midi_smoke(m_data_dir); });
         //try_run("Notes tests", [&] { notes::test_notes(); });
         try_run("Midi note tests", [&] { notes::test_midi_note(m_data_dir); });
+        try_run("Midi dump", [&] { notes::test_dump_midi(m_data_dir); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
@@ -215,12 +217,34 @@ namespace sonic_field
                 "Envelope length check");
     }
 
+    void notes::test_dump_midi(const std::string& data_dir)
+    {
+        SF_MARK_STACK;
+        auto inp = join_path({ data_dir , "To-Dump.mid" });
+        midi_file_reader reader{inp}; 
+    }
+
     void notes::test_midi_note(const std::string& data_dir)
     {
         SF_MARK_STACK;
         auto inp = join_path({ data_dir , "Test-Track-Reader-1.mid" });
         midi_file_reader reader{inp}; 
+        assert_equal(reader.track_count(), 4, "Correct number of tracks");
         auto track0 = reader.track(0);
-        assert_equal(track0.size(), 4, "Track zero correct size");
+        auto track1 = reader.track(1);
+        auto track2 = reader.track(2);
+        auto track3 = reader.track(3);
+        assert_equal(track0.size(), 5, "Track zero correct size");
+        assert_equal(track1.size(), 9, "Track one correct size");
+        assert_equal(track2.size(), 9, "Track two correct size");
+        assert_equal(track3.size(), 9, "Track three correct size");
+        auto merged = merge_midi_tracks({track0, track1});
+        assert_equal(merged.size(), 13, "Merged track correct size");
+        auto end_count = std::count_if(merged.begin(), merged.end(), [](const auto& e)
+        {
+            return e->m_type == midi::event_type::end_of_track;
+        });
+        assert_equal(end_count, 1, "Merged end_of_track dedupe worked");
+
     }
 }

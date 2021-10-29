@@ -171,8 +171,9 @@ namespace sonic_field
         using event_code = uint8_t;
         struct event
         {
-            // Time offset in midi ticks.
-            uint32_t m_offset;
+            // Time offset in midi ticks. This can be relative to the last event in the track
+            // or absolute. To support absolute make with 64 bit.
+            uint64_t m_offset;
             // Midi 8 bit code which is used to figuring out continuation events in parsing.
             event_code m_code;
             // Internal type of the event
@@ -187,7 +188,7 @@ namespace sonic_field
 
         struct event_tempo: event
         {
-            uint32_t m_ms_per_quater;
+            uint32_t m_us_per_quater;
             event_tempo(uint32_t offset, uint32_t ms_per_quater);
             std::string to_string() const override;
         };
