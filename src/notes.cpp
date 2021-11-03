@@ -304,14 +304,26 @@ namespace sonic_field
                 switch(event->m_type)
                 {
                     case e_t::note_on:
+                    {
                         lg();
+                        auto n_event = to_note_on(event);
+                        current_notes::key_type key{n_event->m_channel, n_event->m_data[0]};
+                        if (current_notes::conatins(key))
+                            SF_THROW(std::invalid_input{"Missplaced note on event"});
+                        envelope amp{{0, double(127)/double(n_event->m_data[1]}};
+                        current_notes[key] = envelope_pack{{envelope_type::amplitude, amp}};
                         break;
+                    }
                     case e_t::note_off:
+                    {
                         lg();
                         break;
+                    }
                     default:
+                    {
                         std::cerr << "Ignore " << midi::event_type_to_string(event->m_type)
                                   << "@" << time << std::endl;
+                    }
                 }
             }
         }
