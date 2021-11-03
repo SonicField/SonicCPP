@@ -12,7 +12,8 @@ namespace sonic_field
     namespace notes
     {
         void test_notes();
-        void test_midi_note(const std::string&);
+        void test_midi_tracks(const std::string&);
+        void test_midi_notes(const std::string&);
         void test_dump_midi(const std::string&);
     }
 
@@ -27,8 +28,9 @@ namespace sonic_field
         //try_run("Comms tests", [&] { test_comms(); });
         //try_run("Midi smoke tests", [&] { test_midi_smoke(m_data_dir); });
         //try_run("Notes tests", [&] { notes::test_notes(); });
-        try_run("Midi note tests", [&] { notes::test_midi_note(m_data_dir); });
-        try_run("Midi dump", [&] { notes::test_dump_midi(m_data_dir); });
+        //try_run("Midi dump", [&] { notes::test_dump_midi(m_data_dir); });
+        try_run("Midi track tests", [&] { notes::test_midi_tracks(m_data_dir); });
+        try_run("Midi note tests", [&] { notes::test_midi_notes(m_data_dir); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
@@ -73,7 +75,7 @@ namespace sonic_field
         test_header("Correct track events");
         std::cout << "First event: " << *event1 << std::endl;
         assert_equal(int(event1->m_type), int(midi::event_type::tempo), "First track event is set tempo");
-        assert_equal(dynamic_cast<midi::event_tempo*>(event1.get())->m_ms_per_quater, 500000, "Expected tempo");
+        assert_equal(dynamic_cast<midi::event_tempo*>(event1.get())->m_us_per_quater, 500000, "Expected tempo");
 
         auto event2 =  midi::parse_event(file);
         std::cout << "Second event: " << *event2 << std::endl;
@@ -224,7 +226,7 @@ namespace sonic_field
         midi_file_reader reader{inp}; 
     }
 
-    void notes::test_midi_note(const std::string& data_dir)
+    void notes::test_midi_tracks(const std::string& data_dir)
     {
         SF_MARK_STACK;
         auto inp = join_path({ data_dir , "Test-Track-Reader-1.mid" });
@@ -245,6 +247,26 @@ namespace sonic_field
             return e->m_type == midi::event_type::end_of_track;
         });
         assert_equal(end_count, 1, "Merged end_of_track dedupe worked");
+        uint64_t offset{0};
+        merged = merge_midi_tracks({track0, track1, track2, track3});
+        for(const auto& e: merged)
+        {
+            assert_less_or_equal(offset, e->m_offset, "Events are in ascending order");
+            offset = e->m_offset;
+        }
+    }
 
+    void notes::test_midi_notes(const std::string& data_dir)
+    {
+        SF_MARK_STACK;
+        auto inp = join_path({ data_dir , "Test-Notes-1.mid" });
+        midi_file_reader reader{inp}; 
+        assert_equal(reader.track_count(), 2, "Correct number of tracks");
+        auto track0 = reader.track(0);
+        auto track1 = reader.track(1);
+        auto merged = merge_midi_tracks({track0, track1});
+        assert_equal(merged.size(), 17, "Merged track correct size");
+        track_notes notes{merged, 6000, equal_temperament{}};
+        assert_equal(notes.size(), 3, "Three notes created"); 
     }
 }

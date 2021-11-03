@@ -47,6 +47,30 @@ namespace sonic_field
         std::cerr << "Assertion pass (" << msg << "): " << a << " is false" << std::endl;
     }
 
+    inline void assert_less(const auto& a, const auto& b, const auto& msg)
+    {
+        if (!(a < b))
+        {
+            std::stringstream s{};
+            s << "Assertion '" << msg << "' failed: ";
+            s << a << " not less " << b;
+            SF_THROW(assertion_error{ s.str() });
+        }
+        std::cerr << "Assertion pass (" << msg << "): " << a << " is less " << b << std::endl;
+    }
+
+    inline void assert_less_or_equal(const auto& a, const auto& b, const auto& msg)
+    {
+        if (!(a <= b))
+        {
+            std::stringstream s{};
+            s << "Assertion '" << msg << "' failed: ";
+            s << a << " not less or equal " << b;
+            SF_THROW(assertion_error{ s.str() });
+        }
+        std::cerr << "Assertion pass (" << msg << "): " << a << " is less or equal " << b << std::endl;
+    }
+
     template<typename E>
     inline void assert_throws(auto to_run, const std::string& to_find, const auto msg)
     {

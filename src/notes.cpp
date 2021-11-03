@@ -62,6 +62,7 @@ namespace sonic_field
 
         std::ifstream midi_file_reader::open_file() const
         {
+            SF_MARK_STACK;
             std::ifstream fstrm{m_file_name, std::ios_base::in | std::ios_base::binary };
             if (!fstrm)
                  SF_THROW(std::invalid_argument{"Fille not found: " + m_file_name});
@@ -146,6 +147,7 @@ namespace sonic_field
         // the are both sorted initially) and the easy 'merge and sort'.  I went for the easy.
         midi_track_events merge_midi_tracks(std::vector<midi_track_events> trackes)
         {
+            SF_MARK_STACK;
             midi_track_events merged{};
             for(const auto& t: trackes)
             {
@@ -160,7 +162,7 @@ namespace sonic_field
                 {
                     // Therefore if b is note_on, a is 'less than' (i.e. comes before) b.
                     // If they are both note_on, who cares?
-                    return b->m_type == midi::event_type::note_on;
+                    return (b->m_type == midi::event_type::note_on) && (a->m_type != midi::event_type::note_on);
                 };
                 return a->m_offset < b->m_offset;
             });
@@ -177,17 +179,27 @@ namespace sonic_field
         }
 
         // Utitlies to make dynamic casting to event subtypes easier.
+        // In theory we could use static casts but the safety here seems wise.
         template<typename T>
         const T* to_event(const midi::event_ptr& e)
         {
-            return dynamic_cast<const T*>(e.get());
+            auto ret = dynamic_cast<const T*>(e.get());
+            if (!ret)
+            {
+                auto n = midi::event_type_to_string(e->m_type);
+                SF_THROW(std::invalid_argument{"'Cast' of " + n + " to " + typeid(T).name() + " failed"});
+            }
+            return ret;
         } 
         // Pointer to materialized function - not ideal but looks elegant.
-        auto to_event_tempo = to_event<midi::event_tempo>;
+        auto to_tempo    = to_event<midi::event_tempo>;
+        auto to_note_on  = to_event<midi::note_on_event>;
+        auto to_note_off = to_event<midi::note_off_event>;
 
         // This is factored out just to make track_notes::track_notes more human readable.
         inline auto compute_times(const auto& events, auto total_time_ms)
         {
+            SF_MARK_STACK;
             // Compute the temp scaling factor.
             // Tempo scale current_tempo/initial_tempo which is updated for each tempo event.
             // Then the different between the previous event and the current event is scaled
@@ -207,7 +219,7 @@ namespace sonic_field
                     // Found the first tempo - is it at zero?
                     if (e->m_offset != 0)
                         SF_THROW(std::invalid_argument{"First tempo event not at zero"});
-                    initial_tempo = to_event_tempo(e)->m_us_per_quater;
+                    initial_tempo = to_tempo(e)->m_us_per_quater;
                     break;
                 }
             }
@@ -217,13 +229,14 @@ namespace sonic_field
             uint64_t previous_offset{0};
             double current_tempo{1};
             // Compute scaled time vector...
+            SF_MARK_STACK;
             for(const auto& e: events)
             {
                 auto offset = previous_offset + current_tempo * (e->m_offset - previous_offset);
                 scaled_times.push_back(offset);
                 if (e->m_type == midi::event_type::tempo)
                 {
-                    current_tempo =  initial_tempo/to_event_tempo(e)->m_us_per_quater;
+                    current_tempo =  initial_tempo/to_tempo(e)->m_us_per_quater;
                 }
                 previous_offset = offset;
             }
@@ -235,12 +248,19 @@ namespace sonic_field
             {
                 t *= scale_factor;
             }
+
+            // Paranoia.
+            if (scaled_times.size() != events.size())
+                SF_THROW(std::logic_error{"Scaled time vector / event vector missmatch: " +
+                    std::to_string(scaled_times.size()) + "!=" + std::to_string(events.size())});
+
             // scaled_times is now the event times in milliseconds.
             return scaled_times;
         }
 
         track_notes::track_notes(midi_track_events events, uint64_t total_time_ms, temperament tempr)
         {
+            SF_MARK_STACK;
             using env_pack = std::unordered_map<envelope_type, envelope>;
             using channel = uint32_t;
             using note_id = uint32_t;
@@ -252,16 +272,48 @@ namespace sonic_field
             std::map<std::pair<channel, note_id>, env_pack> current_notes{};
 
             // Key pressure values if any have been set.
+            // Unlike other controller messages these are on a per note basis.
             std::map<std::pair<channel, note_id>, double> polyphonic_key_pressure{};
 
             // Controller values if they have been set.
             std::map<std::pair<channel, envelope_type>, double> active_contollers{};
 
             // Get the tempo corrected times in ms.
+            // There is one entry in this vector for each event in events with the value being the
+            // millisecond time for the event scaled by the track tempo events and to total_time_ms
+            // duration of the entire track.
             auto times = compute_times(events, total_time_ms);
 
-            // Massive ugly switch on event_type is a bit yuck but good enough for this.
+            SF_MARK_STACK;
+            std::cerr << "Parsing events to notes\n" 
+                      << "=======================" << std::endl;
+            for(size_t idx{0}; idx<times.size(); ++idx)
+            {
+                const auto& event = events[idx];
+                const uint64_t time = std::llround(times[idx]);
 
+                // Massive ugly switch on event_type is a bit yuck but good enough for this.
+                using e_t = midi::event_type;
+                auto lg = [time, event]
+                {
+                    std::cerr << "... " << 
+                        midi::event_type_to_string(event->m_type) << 
+                        " @: " << time << std::endl;
+                };
+
+                switch(event->m_type)
+                {
+                    case e_t::note_on:
+                        lg();
+                        break;
+                    case e_t::note_off:
+                        lg();
+                        break;
+                    default:
+                        std::cerr << "Ignore " << midi::event_type_to_string(event->m_type)
+                                  << "@" << time << std::endl;
+                }
+            }
         }
     }
 }

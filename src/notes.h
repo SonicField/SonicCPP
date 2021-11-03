@@ -248,10 +248,7 @@ namespace sonic_field
         // Merge multiple tracks of events into a single one.
         midi_track_events merge_midi_tracks(std::vector<midi_track_events> trackes);
 
-        // Get the ms per time delta for a midi track.
-        uint64_t compute_midi_delta(midi_track_events, uint64_t total_time_ms);
-
-        // Generate a vector of notes from a set of track events.
+        // A vector of notes from a set of track events.
         class track_notes: public std::vector<note>
         {
             track_notes() = default;
@@ -278,6 +275,7 @@ namespace sonic_field
                 track_notes{merge_midi_tracks({events, tempo}), total_time_ms, tempr}
             {}
 
+            // Get only the notes for a given channel.
             track_notes for_channel(auto channel)
             {
                 track_notes ret{};
