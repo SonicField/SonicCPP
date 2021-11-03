@@ -268,5 +268,10 @@ namespace sonic_field
         assert_equal(merged.size(), 17, "Merged track correct size");
         track_notes notes{merged, 6000, equal_temperament{}};
         assert_equal(notes.size(), 3, "Three notes created"); 
+        for(const auto& note: notes)
+        {
+            auto pth_env = note.get_envelope(envelope_type::pitch);
+            std::cerr << "PITCH: " << pth_env[0].amplitude() << std::endl;
+        }
     }
 }

@@ -136,6 +136,7 @@ namespace sonic_field
             const auto note = static_cast<size_t>(std::round(static_cast<double>(midi_note)-octave*12.0));
 
             auto pitch = m_base*std::pow(2.0, octave);
+
             if (m_offset)
                 pitch *= std::pow(cent, ((m_cents[note]+note*100.0)-m_cents[0]));
             else
@@ -261,22 +262,24 @@ namespace sonic_field
         track_notes::track_notes(midi_track_events events, uint64_t total_time_ms, temperament tempr)
         {
             SF_MARK_STACK;
-            using env_pack = std::unordered_map<envelope_type, envelope>;
+            using envelope_pack = std::unordered_map<envelope_type, envelope>;
             using channel = uint32_t;
             using note_id = uint32_t;
+            using note_key = std::pair<channel, note_id>;
+            using controller_key = std::pair<channel, envelope_type>;
 
             // Use ordered maps to avoid worrying about hashing on pairs. The perf difference is not worth
             // worrying about here.
 
             // Notes active on a channel.
-            std::map<std::pair<channel, note_id>, env_pack> current_notes{};
+            std::map<note_key, envelope_pack> current_notes{};
 
             // Key pressure values if any have been set.
             // Unlike other controller messages these are on a per note basis.
-            std::map<std::pair<channel, note_id>, double> polyphonic_key_pressure{};
+            std::map<note_key, double> polyphonic_key_pressure{};
 
             // Controller values if they have been set.
-            std::map<std::pair<channel, envelope_type>, double> active_contollers{};
+            std::map<controller_key, double> active_contollers{};
 
             // Get the tempo corrected times in ms.
             // There is one entry in this vector for each event in events with the value being the
@@ -307,16 +310,34 @@ namespace sonic_field
                     {
                         lg();
                         auto n_event = to_note_on(event);
-                        current_notes::key_type key{n_event->m_channel, n_event->m_data[0]};
-                        if (current_notes::conatins(key))
-                            SF_THROW(std::invalid_input{"Missplaced note on event"});
-                        envelope amp{{0, double(127)/double(n_event->m_data[1]}};
-                        current_notes[key] = envelope_pack{{envelope_type::amplitude, amp}};
+                        note_key key{n_event->m_channel, n_event->m_data[0]};
+                        if (current_notes.contains(key))
+                            SF_THROW(std::invalid_argument{"Missplaced note on event"});
+                        envelope amp{{n_event->m_offset, double(127)/double(n_event->m_data[1])}};
+                        envelope pth{{n_event->m_offset, tempr.pitch(n_event->m_data[0])}};
+                        // For now just make the amplitude/pitch flat.
+                        current_notes[key] = {
+                            {envelope_type::amplitude, amp},
+                            {envelope_type::pitch, pth}
+                        };
                         break;
                     }
                     case e_t::note_off:
                     {
                         lg();
+                        auto n_event = to_note_off(event);
+                        note_key key{n_event->m_channel, n_event->m_data[0]};
+                        if (!current_notes.contains(key))
+                            SF_THROW(std::invalid_argument{"Missplaced note off event"});
+                        envelope amp{{0, double(127)/double(n_event->m_data[1])}};
+                        auto note_start_amp = current_notes[key][envelope_type::amplitude].front();
+                        auto note_start_pth = current_notes[key][envelope_type::pitch].front();
+                        // For now just make the amplitude flat.
+                        auto& current_note = current_notes[key];
+                        current_note[envelope_type::amplitude].push_back({n_event->m_offset, note_start_amp.position()});
+                        current_note[envelope_type::pitch].push_back({n_event->m_offset, note_start_pth.position()});
+                        this->emplace_back(note{current_note});
+                        current_notes.erase(key);
                         break;
                     }
                     default:
