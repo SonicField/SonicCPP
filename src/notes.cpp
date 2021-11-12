@@ -1,5 +1,6 @@
 #include "notes.h"
 #import <map>
+#import <set>
 
 namespace sonic_field
 {
@@ -196,6 +197,13 @@ namespace sonic_field
         auto to_tempo    = to_event<midi::event_tempo>;
         auto to_note_on  = to_event<midi::note_on_event>;
         auto to_note_off = to_event<midi::note_off_event>;
+        auto to_control  = to_event<midi::control_event>;
+        auto to_channel_accessor  = to_event<midi::channel_msg_accessor>;
+
+        const bool is_channel_event(const midi::event_ptr& e)
+        {
+            return dynamic_cast<const midi::channel_msg_accessor*>(e.get()) != nullptr;
+        }
 
         // This is factored out just to make track_notes::track_notes more human readable.
         inline auto compute_times(const auto& events, auto total_time_ms)
@@ -284,7 +292,7 @@ namespace sonic_field
             std::map<note_key, double> polyphonic_key_pressure{};
 
             // Controller values if they have been set.
-            std::map<controller_key, double> active_contollers{};
+            std::map<controller_key, double> active_controllers{};
 
             // Get the tempo corrected times in ms.
             // There is one entry in this vector for each event in events with the value being the
@@ -293,6 +301,36 @@ namespace sonic_field
             auto times = compute_times(events, total_time_ms);
 
             SF_MARK_STACK;
+            // We always have pan, balance and modwheel envelopes.
+            // For the reset we create the appropreate envelopes on the channels as initialized
+            // values for all controllers present on that channel.
+            {
+                std::set<channel> all_channels{};
+                for(const auto& event: events)
+                {
+                    if (is_channel_event(event))
+                    {
+                        auto accessor = to_channel_accessor(event);
+                        auto channel = accessor->channel();
+                        all_channels.insert(channel);
+                        if (accessor->type() == midi::event_type::control)
+                        {
+                            auto evn_type = envelope_type_from_midi_code(accessor->data(0)).type();
+                            active_controllers[controller_key{channel, evn_type}] = 0.0;
+                        }
+                    }
+                }
+                for(const auto channel: all_channels)
+                {
+                    constexpr auto mid_point = 0x2000/16384.0;
+                    active_controllers[controller_key{channel, envelope_type::pan}] = mid_point;
+                    active_controllers[controller_key{channel, envelope_type::modulation}] = 0.0;
+                    // Double init to 0.0 has no effect (i.e. if a balance event was seen in the
+                    // loop above).
+                    active_controllers[controller_key{channel, envelope_type::balance}] = mid_point;
+                }
+            }
+
             std::cerr << "Parsing events to notes\n" 
                       << "=======================" << std::endl;
             for(size_t idx{0}; idx<times.size(); ++idx)
@@ -322,7 +360,7 @@ namespace sonic_field
                         note_key key{n_event->m_channel, n_event->m_data[0]};
                         if (current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note on event"});
-                        envelope amp{{time, double(n_event->m_data[1])/double(127)}};
+                        envelope amp{{time, double(n_event->m_data[1])/127.0}};
                         envelope pth{{time, tempr.pitch(n_event->m_data[0])}};
                         // For now just make the amplitude/pitch flat.
                         current_notes[key] = {
@@ -339,7 +377,7 @@ namespace sonic_field
                         if (!current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note off event"});
                         auto note_start_pth = current_notes[key][envelope_type::pitch].front();
-                        auto amp = double(n_event->m_data[1])/double(127);
+                        auto amp = double(n_event->m_data[1])/127.0;
                         if (amp == 0)
                         {
                             // This the amplitude is set, use that, otherwise use the amplitude from the start
