@@ -11,6 +11,32 @@ namespace sonic_field
         using std::runtime_error::runtime_error;
     };
 
+    // Hany for floating point approximate assertions.
+    auto scale_10000(auto x)
+    {
+        return std::llround(x*double(10000));
+    }
+
+    auto scale_1000(auto x)
+    {
+        return std::llround(x*double(1000));
+    }
+
+    auto scale_100(auto x)
+    {
+        return std::llround(x*double(100));
+    }
+
+    auto scale_10(auto x)
+    {
+        return std::llround(x*double(10));
+    }
+
+    auto scale_1(auto x)
+    {
+        return std::llround(x);
+    }
+
     inline void assert_equal(const auto& a, const auto& b, const auto& msg)
     {
         if (a != b)

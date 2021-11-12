@@ -227,24 +227,29 @@ namespace sonic_field
             if (initial_tempo == 0)
                 SF_THROW(std::invalid_argument{"Either no tempo was found or it was zero."});
 
-            uint64_t previous_offset{0};
+            double previous_offset{0};
+            double previous_scaled_offset{0};
             double current_tempo{1};
             // Compute scaled time vector...
             SF_MARK_STACK;
             for(const auto& e: events)
             {
-                auto offset = previous_offset + current_tempo * (e->m_offset - previous_offset);
+                auto offset = previous_scaled_offset + current_tempo * (e->m_offset - previous_offset);
                 scaled_times.push_back(offset);
                 if (e->m_type == midi::event_type::tempo)
                 {
-                    current_tempo =  initial_tempo/to_tempo(e)->m_us_per_quater;
+                    // Note that tempo is the number of us per quater nore which is reciprical of
+                    // speed so we divide the new tempo by the original to get the time scale factor which
+                    // is what sonic field uses.
+                    current_tempo =  to_tempo(e)->m_us_per_quater/initial_tempo;
                 }
-                previous_offset = offset;
+                previous_offset = e->m_offset;
+                previous_scaled_offset = offset;
             }
 
             // We know there must have been at least one event or the initial_tempo would not have been
             // set and so this code will have already thrown.
-            auto scale_factor = total_time_ms / scaled_times.back();
+            auto scale_factor = double(total_time_ms) / scaled_times.back();
             for(auto& t: scaled_times)
             {
                 t *= scale_factor;
@@ -304,6 +309,10 @@ namespace sonic_field
                         " @: " << time << std::endl;
                 };
 
+                //auto set_controller = [&](auto controller_key&, auto value)
+                //{
+                //}
+
                 switch(event->m_type)
                 {
                     case e_t::note_on:
@@ -313,8 +322,8 @@ namespace sonic_field
                         note_key key{n_event->m_channel, n_event->m_data[0]};
                         if (current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note on event"});
-                        envelope amp{{n_event->m_offset, double(127)/double(n_event->m_data[1])}};
-                        envelope pth{{n_event->m_offset, tempr.pitch(n_event->m_data[0])}};
+                        envelope amp{{time, double(n_event->m_data[1])/double(127)}};
+                        envelope pth{{time, tempr.pitch(n_event->m_data[0])}};
                         // For now just make the amplitude/pitch flat.
                         current_notes[key] = {
                             {envelope_type::amplitude, amp},
@@ -329,13 +338,19 @@ namespace sonic_field
                         note_key key{n_event->m_channel, n_event->m_data[0]};
                         if (!current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note off event"});
-                        envelope amp{{0, double(127)/double(n_event->m_data[1])}};
-                        auto note_start_amp = current_notes[key][envelope_type::amplitude].front();
                         auto note_start_pth = current_notes[key][envelope_type::pitch].front();
+                        auto amp = double(n_event->m_data[1])/double(127);
+                        if (amp == 0)
+                        {
+                            // This the amplitude is set, use that, otherwise use the amplitude from the start
+                            // of the note.  Not sure if this makes sense but we will find out with experience.
+                            auto note_start_amp = current_notes[key][envelope_type::amplitude].front();
+                            amp = note_start_amp.amplitude();
+                        }
                         // For now just make the amplitude flat.
                         auto& current_note = current_notes[key];
-                        current_note[envelope_type::amplitude].push_back({n_event->m_offset, note_start_amp.position()});
-                        current_note[envelope_type::pitch].push_back({n_event->m_offset, note_start_pth.position()});
+                        current_note[envelope_type::amplitude].push_back({time, amp});
+                        current_note[envelope_type::pitch].push_back({time, note_start_pth.amplitude()});
                         this->emplace_back(note{current_note});
                         current_notes.erase(key);
                         break;
