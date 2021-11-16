@@ -317,18 +317,8 @@ namespace sonic_field
             }
         };
 
-        // Allows access to data in channel message events even though the actual
-        // event types are templated. This was added in after the class system was first
-        // written and so might not be the optimial approach but it works.
-        struct channel_msg_accessor
-        {
-            virtual uint8_t channel() const = 0;
-            virtual uint8_t data(size_t idx) const = 0;
-            virtual event_type type() const = 0;
-        };
-
         template<event_type C, size_t N>
-        struct channel_msg_event: msg_event<C, N>, channel_msg_accessor
+        struct channel_msg_event: msg_event<C, N>
         {
             uint8_t m_channel;
             channel_msg_event(uint32_t offset, std::array<uint8_t, N>&& data, uint8_t channel):
@@ -339,21 +329,6 @@ namespace sonic_field
             virtual std::string to_string() const override
             {
                 return msg_event<C, N>::to_string() + "#" + std::to_string(m_channel);
-            }
-
-            virtual uint8_t channel() const override
-            {
-                return m_channel;
-            }
-
-            virtual uint8_t data(size_t idx) const override
-            {
-                return this->m_data.at(idx);
-            }
-
-            virtual event_type type() const override
-            {
-                return this->m_type;
             }
         };
 

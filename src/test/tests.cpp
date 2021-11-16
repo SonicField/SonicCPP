@@ -32,12 +32,12 @@ namespace sonic_field
         //try_run("Midi smoke tests", [&] { test_midi_smoke(m_data_dir); });
         //try_run("Notes tests", [&] { notes::test_notes(); });
         // This one is not really a test but an easy way to look into a midi track.
-        try_run("Midi dump", [&] { notes::test_dump_midi(m_data_dir, "Test-Notes-4.mid"); });
+        //try_run("Midi dump", [&] { notes::test_dump_midi(m_data_dir, "Test-Notes-4.mid"); });
         //try_run("Midi track tests", [&] { notes::test_midi_tracks(m_data_dir); });
         //try_run("Midi note tests 1", [&] { notes::test_midi_notes_1(m_data_dir); });
         //try_run("Midi note tests 2", [&] { notes::test_midi_notes_2(m_data_dir); });
         //try_run("Midi note tests 3", [&] { notes::test_midi_notes_3(m_data_dir); });
-        //try_run("Midi note tests 4", [&] { notes::test_midi_notes_4(m_data_dir); });
+        try_run("Midi note tests 4", [&] { notes::test_midi_notes_4(m_data_dir); });
         std::cerr << "\n";
         std::cerr << "****************************************\n";
         std::cerr << "* Failed tests: " << m_failed << "\n";
@@ -376,5 +376,18 @@ namespace sonic_field
                 5480, "Note 1 start");
         assert_equal(scale_1(notes[1].get_envelope(envelope_type::amplitude)[1].position()),
                 6046, "Note 0 end");
+    }
+
+    void notes::test_midi_notes_4(const std::string& data_dir)
+    {
+        SF_MARK_STACK;
+        auto inp = join_path({ data_dir , "Test-Notes-4.mid" });
+        midi_file_reader reader{inp};
+        assert_equal(reader.track_count(), 2, "Correct number of tracks");
+        auto track0 = reader.track(0);
+        auto track1 = reader.track(1);
+        auto merged = merge_midi_tracks({track0, track1});
+        track_notes notes{merged, 7744, equal_temperament{}};
+        assert_equal(notes.size(), 2, "Two notes created");
     }
 }

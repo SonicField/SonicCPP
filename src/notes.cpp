@@ -6,7 +6,7 @@ namespace sonic_field
 {
     namespace notes
     {
-        note::note(std::unordered_map<envelope_type, envelope> envs):
+        note::note(uint32_t channel, std::unordered_map<envelope_type, envelope> envs, double rel_vel):
             m_envelopes{std::move(envs)}
         {
             SF_MARK_STACK;
@@ -30,6 +30,8 @@ namespace sonic_field
                 if (e.second.back().position() != end)
                     SF_THROW(std::invalid_argument{"Envelope ends not aligned"});
             }
+            m_channel = channel;
+            m_release_velocity = rel_vel;
         }
 
         uint64_t note::start() const
@@ -192,18 +194,12 @@ namespace sonic_field
                 SF_THROW(std::invalid_argument{"'Cast' of " + n + " to " + typeid(T).name() + " failed"});
             }
             return ret;
-        } 
+        }
         // Pointer to materialized function - not ideal but looks elegant.
         auto to_tempo    = to_event<midi::event_tempo>;
         auto to_note_on  = to_event<midi::note_on_event>;
         auto to_note_off = to_event<midi::note_off_event>;
         auto to_control  = to_event<midi::control_event>;
-        auto to_channel_accessor  = to_event<midi::channel_msg_accessor>;
-
-        const bool is_channel_event(const midi::event_ptr& e)
-        {
-            return dynamic_cast<const midi::channel_msg_accessor*>(e.get()) != nullptr;
-        }
 
         // This is factored out just to make track_notes::track_notes more human readable.
         inline auto compute_times(const auto& events, auto total_time_ms)
@@ -272,6 +268,22 @@ namespace sonic_field
             return scaled_times;
         }
 
+        // wheel_env_point is a sonic field envelope value between 0 and 1.  No pitch change will be
+        // 0.5.
+        inline double compute_pitch_wheel(auto pitch, auto wheel_env_point)
+        {
+            // Force exact type matching and avoid coersion.
+            static_assert(std::is_same_v<decltype(pitch), double>, "pitch must be double");
+            static_assert(std::is_same_v<decltype(wheel_env_point), double>, "wheel_env_point must be double");
+            // The pitch shift of 2 half steps in equal temperament.
+            // Other temperaments are only off by a few cents so unless the pitch wheel is being used
+            // for tuning (which it should not - it is not sophisticated enough really - temperaments or
+            // a general purpos controller plus special logic is a better bet) then this will be 'good enough'.
+            const auto two_step = std::pow(2.0, 1.0/0.6);
+            const auto shift = wheel_env_point - 0.5;
+            return pitch * std::pow(two_step, shift);
+        }
+
         track_notes::track_notes(midi_track_events events, uint64_t total_time_ms, temperament tempr)
         {
             SF_MARK_STACK;
@@ -289,10 +301,10 @@ namespace sonic_field
 
             // Key pressure values if any have been set.
             // Unlike other controller messages these are on a per note basis.
-            std::map<note_key, double> polyphonic_key_pressure{};
+            std::map<note_key, uint> polyphonic_key_pressure{};
 
             // Controller values if they have been set.
-            std::map<controller_key, double> active_controllers{};
+            std::map<controller_key, uint> active_controllers{};
 
             // Get the tempo corrected times in ms.
             // There is one entry in this vector for each event in events with the value being the
@@ -304,19 +316,49 @@ namespace sonic_field
             // We always have pan, balance and modwheel envelopes.
             // For the reset we create the appropreate envelopes on the channels as initialized
             // values for all controllers present on that channel.
+            std::cerr << "Parsing out controllers\n"
+                      << "=======================" << std::endl;
             {
                 std::set<channel> all_channels{};
                 for(const auto& event: events)
                 {
-                    if (is_channel_event(event))
+                    switch(event->m_type)
                     {
-                        auto accessor = to_channel_accessor(event);
-                        auto channel = accessor->channel();
-                        all_channels.insert(channel);
-                        if (accessor->type() == midi::event_type::control)
+                        case midi::event_type::control:
                         {
-                            auto evn_type = envelope_type_from_midi_code(accessor->data(0)).type();
-                            active_controllers[controller_key{channel, evn_type}] = 0.0;
+                            auto control = to_control(event);
+                            auto channel = control->m_channel;
+                            all_channels.insert(channel);
+                            auto code = control->m_data[0];
+                            if (is_envelope_midi_code(code))
+                            {
+                                SF_MARK_STACK;
+                                auto evn_type = envelope_type_from_midi_code(code).type();
+                                std::cerr << "... Process: " << midi::event_type_to_string(event->m_type)
+                                    << "/" << int(code) << std::endl;
+                                active_controllers[controller_key{channel, evn_type}] = 0.0;
+                            }
+                            else
+                            {
+                                std::cerr << "... Ignore:  " << midi::event_type_to_string(event->m_type)
+                                    << "/" << int(code) << std::endl;
+                            }
+                            break;
+                        }
+                        case midi::event_type::key_pressure:
+                        {
+                            // Polyphonic key pressure per note impacted.
+                            break;
+                        }
+                        case midi::event_type::channel_pressure:
+                        {
+                            // Channel amplitude envelope.
+                            break;
+                        }
+                        // Don't do pitch wheel as the pitch envelope is always set.
+                        default:
+                        {
+                            std::cerr << "... Ignore:  " << midi::event_type_to_string(event->m_type) << std::endl;
                         }
                     }
                 }
@@ -325,13 +367,17 @@ namespace sonic_field
                     constexpr auto mid_point = 0x2000/16384.0;
                     active_controllers[controller_key{channel, envelope_type::pan}] = mid_point;
                     active_controllers[controller_key{channel, envelope_type::modulation}] = 0.0;
+                    // We will set the pitch wheel full range to 1 step but that sort of has no meaning unless
+                    // we are in equal temparament. But the rang as +/- 2 equal temperament half steps is
+                    // probably good enough.
+                    active_controllers[controller_key{channel, envelope_type::pitch}] = mid_point;
                     // Double init to 0.0 has no effect (i.e. if a balance event was seen in the
                     // loop above).
                     active_controllers[controller_key{channel, envelope_type::balance}] = mid_point;
                 }
             }
 
-            std::cerr << "Parsing events to notes\n" 
+            std::cerr << "Parsing events to notes\n"
                       << "=======================" << std::endl;
             for(size_t idx{0}; idx<times.size(); ++idx)
             {
@@ -342,15 +388,63 @@ namespace sonic_field
                 using e_t = midi::event_type;
                 auto lg = [time, event]
                 {
-                    std::cerr << "... " << 
-                        midi::event_type_to_string(event->m_type) << 
+                    std::cerr << "... " <<
+                        midi::event_type_to_string(event->m_type) <<
                         " @: " << time << std::endl;
                 };
 
-                //auto set_controller = [&](auto controller_key&, auto value)
-                //{
-                //}
+                auto update_current_notes = [&](controller_key key, double new_value)
+                {
+                    for(auto& chan_pack: current_notes)
+                    {
+                        // As there are only 16 channels max is this not so bad a way of doing things.
+                        if (chan_pack.first.first != key.first)
+                            continue;
+                        chan_pack.second[key.second].emplace_back(time, new_value);
+                    }
+                };
 
+                auto update_current_note_poly = [&](note_key key, double new_value)
+                {
+                    if (!current_notes.contains(key))
+                        SF_THROW(std::logic_error{"Attempt to access missing note"});
+                    auto& note_env = current_notes[key];
+                    if (!note_env.contains(envelope_type::polyphonic_pressure))
+                        SF_THROW(std::logic_error{"Attempt to access missing note/key_pressue envelope"});
+                    note_env[envelope_type::polyphonic_pressure].emplace_back(time, new_value);
+                };
+
+                // For those without special handlers.
+                auto set_controller = [&](channel chan, envelope_midi_value midi_value, uint update)
+                {
+                    SF_MARK_STACK;
+                    controller_key key{chan, midi_value.type()};
+                    if (!active_controllers.contains(key))
+                        SF_THROW(std::logic_error{"Attempt to access missing envelope"});
+                    auto previous = active_controllers[key];
+                    auto updated = midi_value.update(previous, update);
+                    active_controllers[key] = updated;
+                    auto sf_value = midi_value.to_sf_value(updated);
+                    update_current_notes(key, sf_value);
+                };
+
+                auto set_pitch_envelope = [&](channel chan, uint update)
+                {
+                    SF_MARK_STACK;
+                    // For each note on this channel find the start pitch (i.e
+                };
+
+                auto set_polyphonic_pressure = [&](channel chan, uint key, uint value)
+                {
+                    SF_MARK_STACK;
+                };
+
+                auto set_channel_pressure = [&](channel chan, uint value)
+                {
+                    SF_MARK_STACK;
+                };
+
+                SF_MARK_STACK;
                 switch(event->m_type)
                 {
                     case e_t::note_on:
@@ -360,13 +454,46 @@ namespace sonic_field
                         note_key key{n_event->m_channel, n_event->m_data[0]};
                         if (current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note on event"});
-                        envelope amp{{time, double(n_event->m_data[1])/127.0}};
-                        envelope pth{{time, tempr.pitch(n_event->m_data[0])}};
-                        // For now just make the amplitude/pitch flat.
+
+                        // Get the amplitude from the note event and scale by the amplitude
+                        // envelope if this channel has one.
+                        auto note_amp = double(n_event->m_data[1])/127.0;
+                        controller_key note_amp_key{n_event->m_channel, envelope_type::amplitude};
+                        if (active_controllers.contains(note_amp_key))
+                            note_amp *= active_controllers[note_amp_key]/16383.0;
+                        envelope amp{{time, note_amp}};
+
+                        // Compute the pitch including and effect from the pitch wheel.
+                        controller_key ptch_key{n_event->m_channel, envelope_type::pitch};
+                        auto ptch_wheel = active_controllers[ptch_key];
+                        auto ptch = compute_pitch_wheel(tempr.pitch(n_event->m_data[0]), ptch_wheel/16383.0);
+                        envelope pth{{time, ptch}};
+
+                        // Construct the note with appropreate starting values for each envelope based on which
+                        // controllers exist for this channel and note.
+                        // Amplitude and Pitch depend on the note values, the rest are simple copies.
                         current_notes[key] = {
                             {envelope_type::amplitude, amp},
                             {envelope_type::pitch, pth}
                         };
+                        for(const auto& key_value: active_controllers)
+                        {
+                            // Only matching channels;
+                            if (key_value.first.first != key.first)
+                                continue;
+                            // Switch on envelope type.
+                            switch(key_value.first.second)
+                            {
+                                case envelope_type::amplitude:
+                                case envelope_type::pitch:
+                                    continue;
+                                default:
+                                    envelope_type env_ty = key_value.first.second;
+                                    double env_val = envelope_midi_to_sf(env_ty, key_value.second);
+                                    // Make a envelope point at position 0 with the controller value.
+                                    current_notes[key][env_ty].emplace_back(0, env_val);
+                            }
+                        }
                         break;
                     }
                     case e_t::note_off:
@@ -376,20 +503,17 @@ namespace sonic_field
                         note_key key{n_event->m_channel, n_event->m_data[0]};
                         if (!current_notes.contains(key))
                             SF_THROW(std::invalid_argument{"Missplaced note off event"});
-                        auto note_start_pth = current_notes[key][envelope_type::pitch].front();
-                        auto amp = double(n_event->m_data[1])/127.0;
-                        if (amp == 0)
-                        {
-                            // This the amplitude is set, use that, otherwise use the amplitude from the start
-                            // of the note.  Not sure if this makes sense but we will find out with experience.
-                            auto note_start_amp = current_notes[key][envelope_type::amplitude].front();
-                            amp = note_start_amp.amplitude();
-                        }
+                        // The release velocity of the note.
+                        auto rel_vel = double(n_event->m_data[1])/127.0;
                         // For now just make the amplitude flat.
                         auto& current_note = current_notes[key];
-                        current_note[envelope_type::amplitude].push_back({time, amp});
-                        current_note[envelope_type::pitch].push_back({time, note_start_pth.amplitude()});
-                        this->emplace_back(note{current_note});
+                        // Copy the last value for all envs to the end position of the note.
+                        for(auto& env_kv: current_note)
+                        {
+                            auto& current_env = env_kv.second;
+                            current_env.emplace_back(time, current_env.front().amplitude());
+                        }
+                        this->emplace_back(note{n_event->m_channel, current_note, rel_vel});
                         current_notes.erase(key);
                         break;
                     }
@@ -398,6 +522,31 @@ namespace sonic_field
                         std::cerr << "Ignore " << midi::event_type_to_string(event->m_type)
                                   << "@" << time << std::endl;
                     }
+                }
+            }
+            // Midi can cause multiple envelope points at the same time for the same envelope which
+            // is an assumption sonic field does not support. Therefore, we scrub the envelopes for all the notes
+            // stored.
+            SF_MARK_STACK;
+            for(auto& a_note: *this)
+            {
+                for(auto& ty_env: a_note.m_envelopes)
+                {
+                    envelope new_env{};
+                    uint64_t prev_t{};
+                    if (ty_env.second.size() < 2)
+                        SF_THROW(std::logic_error{"Envelope with less than 2 elements"});
+                    // Go in reverse so we capture the last update at the particular time as this
+                    // is the active one because midi is event based so even though times might be
+                    // simultaneous the ordering is still defined.
+                    for(auto it = ty_env.second.rbegin(); it != ty_env.second.rend(); ++it)
+                    {
+                        if (it->position() < prev_t)
+                            new_env.push_back(*it);
+                        prev_t = it->position();
+                    }
+                    std::reverse(new_env.begin(), new_env.end());
+                    ty_env.second = new_env;
                 }
             }
         }

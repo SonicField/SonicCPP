@@ -140,7 +140,18 @@ namespace sonic_field
                 {
                     if (previous & 0xFF80)
                         SF_THROW(std::invalid_argument{"pervious out of range " + std::to_string(previous)});
-                    return update;
+                    // Tidy up on/off controller values to 127 or 0 which will map to 1. and 0. for an envelope.
+                    switch(m_type)
+                    {
+                        case envelope_type::damper:
+                        case envelope_type::portamento:
+                        case envelope_type::sustain:
+                        case envelope_type::soft:
+                        case envelope_type::legato:
+                            return decltype(update)(update>63? 127:0);
+                        default:
+                            return update;
+                    }
                 }
 
                 if (previous & 0xC000)
@@ -159,13 +170,63 @@ namespace sonic_field
                     return ret;
                 }
             }
-
+            
             envelope_type type() const
             {
                 return m_type;
             }
         };
 
+        inline double envelope_midi_to_sf(envelope_type env_ty, auto bit_value)
+        {
+            static_assert(std::is_integral_v<decltype(bit_value)>, "bit_value must be interal");
+            switch(env_ty)
+            {
+                case envelope_type::modulation:
+                case envelope_type::breath:
+                case envelope_type::foot:
+                case envelope_type::portamento_time:
+                case envelope_type::amplitude:
+                case envelope_type::balance:
+                case envelope_type::pan:
+                case envelope_type::expression:
+                case envelope_type::effect_control_1:
+                case envelope_type::effect_control_2:
+                case envelope_type::general_purpose_1:
+                case envelope_type::general_purpose_2:
+                case envelope_type::general_purpose_3:
+                case envelope_type::general_purpose_4:
+                case envelope_type::pitch:
+                case envelope_type::channel_pressure:
+                case envelope_type::polyphonic_pressure:
+                    return bit_value/16383.0;
+                case envelope_type::effect_reverb:
+                case envelope_type::effect_tremolo:
+                case envelope_type::effect_chorus:
+                case envelope_type::effect_detune:
+                case envelope_type::effect_phaser:
+                case envelope_type::sound_variation:
+                case envelope_type::sound_timbre:
+                case envelope_type::sound_release:
+                case envelope_type::sound_attack:
+                case envelope_type::sound_brightness:
+                case envelope_type::sound_decay:
+                case envelope_type::sound_vibrato_rate:
+                case envelope_type::sound_vibrato_depth:
+                case envelope_type::sound_vibrato_delay:
+                    return bit_value/127.0;
+                case envelope_type::damper:
+                case envelope_type::sustain:
+                case envelope_type::portamento:
+                case envelope_type::soft:
+                case envelope_type::legato:
+                    return bit_value>63? 1.0:0.0;
+            }
+        }
+
+        // Convert a midi controller code to an envelope_midi_value struct which can process
+        // envelope updates or throw if the code is not recognised.  Use is_envelope_midi_code before
+        // calling this!
         inline envelope_midi_value envelope_type_from_midi_code(int code)
         {
             switch(code)
@@ -232,17 +293,46 @@ namespace sonic_field
             }
         }
 
+        // Is a midi controller code mapped to an envelope?  We ignore those which are not.
+        inline bool is_envelope_midi_code(int code)
+        {
+            switch(code)
+            {
+                // Bank select
+                case 0x0:
+                case 0x20:
+                // Permamento Control
+                case 0x54:
+                // Modes
+                case 0x78:
+                case 0x79:
+                case 0x7A:
+                case 0x7B:
+                case 0x7C:
+                case 0x7D:
+                case 0x7E:
+                case 0x7F:
+                // Should we add all the others like undefs and NRGP etc?
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
         // A note is a constrained set of envelopes to represent a sound.
         // It must have a pitch and amplitude envelope, all others are optional.
         // All envelopes must start and end at the same position but do not need
         // to have the same number of elements.
         // See envelope_type.
+        class track_notes;
         class note
         {
             uint32_t m_channel;
+            double m_release_velocity;
             std::unordered_map<envelope_type, envelope> m_envelopes;
+            friend track_notes;
         public:
-            explicit note(std::unordered_map<envelope_type, envelope> envs);
+            explicit note(uint32_t channel, std::unordered_map<envelope_type, envelope> envs, double relv);
 
             uint64_t start() const;
 
@@ -257,6 +347,11 @@ namespace sonic_field
             uint32_t channel() const
             {
                 return m_channel;
+            }
+
+            double release_velocity() const
+            {
+                return m_release_velocity;
             }
         };
 
@@ -285,7 +380,6 @@ namespace sonic_field
             midi_tracks_events m_events;
             void read_events();
             std::ifstream open_file() const;
-
         public:
             explicit midi_file_reader(std::string file_name);
             std::vector<size_t> tracks_with_notes() const;
